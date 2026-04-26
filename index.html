@@ -539,6 +539,11 @@
             connectAttemptPeerId: null
         };
 
+        let peer = null;
+        let myId = session.peerId;
+        let conn = null;
+        let isHost = false;
+
         function getLocalTeam() {
             return teams[session.localSide] || teams.BLUE;
         }
@@ -650,6 +655,16 @@
             });
         }
 
+        function startMatching() {
+            tryAutoLobby();
+        }
+
+        function setupConnection() {
+            if (!conn) return;
+            session.channel = conn;
+            acceptPeerConnection(conn, true);
+        }
+
         // --- 1. 認証 ---
         async function initAuth() {
             const auth = firebase.auth();
@@ -704,41 +719,43 @@
             initAuth();
         }
 
-        function initPeerNetworking() {
-            if (session.peer || typeof Peer === 'undefined') {
-                updatePeerIdUI();
-                if (typeof Peer === 'undefined') {
-                    setConnectionStatus('PeerJS を読み込めませんでした');
-                }
-                return;
-            }
+        // --- 2. PeerJSの初期化 ---
+        function initPeer() {
+            console.log("★ボタンが押されました！PeerJSに接続します...");
+            // debug: 2 を入れると、裏側の通信状態を詳しくコンソールに出してくれます
+            peer = new Peer({ debug: 2 }); 
+            session.peer = peer;
 
-            session.peer = new Peer();
+            const statusEl = ui.matchStatus;
 
-            session.peer.on('open', id => {
+            peer.on('open', (id) => {
+                myId = id;
                 session.peerId = id;
                 session.peerReady = true;
+                console.log("★My Peer ID 発行成功:", myId);
                 updatePeerIdUI();
                 setConnectionStatus(`ID発行完了: ${session.peerId}`);
-                tryAutoLobby();
+                startMatching();
             });
 
-            session.peer.on('connection', conn => {
-                if (session.channel && session.channel.open) {
-                    conn.close();
-                    return;
-                }
-                if (gameState === 'PLAYING' && session.mode !== 'ONLINE') {
-                    conn.close();
-                    return;
-                }
-                acceptPeerConnection(conn, true);
+            peer.on('connection', (connection) => {
+                conn = connection;
+                isHost = false;
+                setupConnection();
+                if(statusEl) statusEl.innerText = "マッチング成立！（ゲスト）";
             });
 
-            session.peer.on('error', err => {
+            // 新しく追加した「エラー報告」の罠
+            peer.on('error', (err) => {
+                console.error("★PeerJS エラー発生:", err.type, err);
+                if(statusEl) statusEl.innerText = "通信サーバー接続エラー: " + err.type;
                 setConnectionStatus(`Peer エラー: ${err.type || err.message || 'unknown'}`);
                 updatePeerIdUI();
             });
+        }
+
+        function initPeerNetworking() {
+            initPeer();
         }
 
         function getMatchIdForPeer(remotePeerId) {
@@ -2113,7 +2130,7 @@
 
         window.onload = () => {
             initFirebaseLobby();
-            initPeerNetworking();
+            initPeer();
             showStartScreen();
         };
 
