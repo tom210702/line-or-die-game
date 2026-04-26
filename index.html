@@ -91,8 +91,8 @@
             <button onclick="startGame('LOCAL')" class="flex-1 px-8 py-3 md:py-4 bg-white text-black font-black text-base md:text-lg rounded-full hover:bg-gray-200 hover:scale-105 transition-transform active:scale-95 shadow-[0_0_30px_rgba(255,255,255,0.5)]">
                 AIと対戦
             </button>
-            <button id="matchBtn" onclick="startOnlineMatch()" disabled class="flex-1 px-8 py-3 md:py-4 bg-cyan-400 text-black font-black text-base md:text-lg rounded-full hover:bg-cyan-300 hover:scale-105 transition-transform active:scale-95 shadow-[0_0_24px_rgba(34,211,238,0.45)]">
-                オンライン対戦
+            <button id="createRoomBtn" onclick="createRoom()" disabled class="flex-1 px-8 py-3 md:py-4 bg-cyan-400 text-black font-black text-base md:text-lg rounded-full hover:bg-cyan-300 hover:scale-105 transition-transform active:scale-95 shadow-[0_0_24px_rgba(34,211,238,0.45)]">
+                部屋を作る
             </button>
         </div>
         <div class="mt-3 md:mt-4 w-full max-w-md px-4">
@@ -100,8 +100,29 @@
             <input id="playerNameInput" type="text" maxlength="16" placeholder="プレイヤー名を入力" class="w-full rounded-2xl bg-black/50 border border-gray-600 px-4 py-3 text-sm md:text-base text-white font-bold outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/30" />
         </div>
         <div class="mt-3 w-full max-w-md px-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button id="searchRoomBtn" onclick="searchRooms()" disabled class="px-5 py-3 rounded-2xl bg-transparent border-2 border-cyan-400/70 text-cyan-100 font-black text-sm md:text-base hover:bg-cyan-500/10 transition-colors">
+                    部屋を探す
+                </button>
+                <button onclick="showStartScreen()" class="px-5 py-3 rounded-2xl bg-transparent border-2 border-gray-600 text-gray-300 font-black text-sm md:text-base hover:bg-gray-800 hover:text-white transition-colors">
+                    タイトルへ戻る
+                </button>
+            </div>
+        </div>
+        <div class="mt-3 w-full max-w-md px-4">
+            <label class="block text-[10px] md:text-xs text-gray-300 font-bold mb-1">部屋コード</label>
+            <div class="flex gap-2">
+                <input id="roomCodeInput" type="text" maxlength="8" placeholder="ABCDE1" class="flex-1 rounded-2xl bg-black/50 border border-gray-600 px-4 py-3 text-sm md:text-base text-white font-bold uppercase outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/30" />
+                <button id="joinRoomBtn" onclick="joinRoomByCodeFromInput()" disabled class="px-4 md:px-5 py-3 rounded-2xl bg-white text-black font-black text-sm md:text-base hover:bg-gray-200 transition-colors">
+                    参加
+                </button>
+            </div>
+        </div>
+        <div class="mt-3 w-full max-w-md px-4">
             <div class="rounded-2xl border border-cyan-400/30 bg-cyan-950/20 backdrop-blur-md px-4 py-3 md:px-5 md:py-4 shadow-[0_0_28px_rgba(34,211,238,0.12)]">
-                <div id="matchStatus" class="text-cyan-200 text-center text-xs md:text-sm font-bold tracking-wider min-h-[1.25rem] leading-snug">AIと対戦、オンライン対戦、名前変更ができます</div>
+                <div id="roomListStatus" class="text-cyan-100 text-center text-xs md:text-sm font-bold tracking-wider min-h-[1.25rem] leading-snug">部屋を作るか、部屋コードで参加してください</div>
+                <div id="roomList" class="mt-3 flex flex-col gap-2 max-h-40 overflow-y-auto"></div>
+                <div id="matchStatus" class="mt-3 text-cyan-200 text-center text-xs md:text-sm font-bold tracking-wider min-h-[1.25rem] leading-snug">AIと対戦、部屋作成、部屋検索、名前変更ができます</div>
             </div>
         </div>
     </div>
@@ -446,8 +467,12 @@
             blueTeamLabel: document.getElementById('blueTeamLabel'),
             localItemsLabel: document.getElementById('localItemsLabel'),
             playerNameInput: document.getElementById('playerNameInput'),
-            myPeerId: document.getElementById('myPeerId'),
-            matchBtn: document.getElementById('matchBtn'),
+            roomCodeInput: document.getElementById('roomCodeInput'),
+            roomList: document.getElementById('roomList'),
+            roomListStatus: document.getElementById('roomListStatus'),
+            createRoomBtn: document.getElementById('createRoomBtn'),
+            searchRoomBtn: document.getElementById('searchRoomBtn'),
+            joinRoomBtn: document.getElementById('joinRoomBtn'),
             bluePtTxt: document.getElementById('bluePtTxt'),
             startScreen: document.getElementById('startScreen'),
             matchStatus: document.getElementById('matchStatus'),
@@ -528,6 +553,12 @@
             peerIdRemote: null,
             playerName: 'YOU',
             opponentName: 'OPPONENT',
+            roomCode: null,
+            roomRef: null,
+            roomListUnsub: null,
+            roomHeartbeatTimer: null,
+            roomAction: null,
+            pendingRoomCode: null,
             pendingLocalActions: [],
             lastSnapshotSentAt: 0,
             peerReady: false,
@@ -622,18 +653,22 @@
             return !!(FIREBASE_CONFIG && FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.projectId);
         }
 
-        function lobbyCollection() {
-            return session.db.collection(`artifacts/${APP_ID}/public/data/lobby`);
+        function roomCollection() {
+            return session.db.collection(`artifacts/${APP_ID}/public/data/rooms`);
         }
 
         async function cleanupLobby() {
-            if (session.lobbyUnsub) {
-                session.lobbyUnsub();
-                session.lobbyUnsub = null;
+            if (session.roomListUnsub) {
+                session.roomListUnsub();
+                session.roomListUnsub = null;
             }
-            if (session.lobbyRef) {
-                const ref = session.lobbyRef;
-                session.lobbyRef = null;
+            if (session.roomHeartbeatTimer) {
+                clearInterval(session.roomHeartbeatTimer);
+                session.roomHeartbeatTimer = null;
+            }
+            if (session.roomRef) {
+                const ref = session.roomRef;
+                session.roomRef = null;
                 try {
                     await ref.delete();
                 } catch (_) {
@@ -641,86 +676,261 @@
             }
         }
 
-        async function registerSelfInLobby() {
-            if (!session.db || !session.peerReady || !session.authReady) return;
-            if (session.channel && session.channel.open) return;
+        function normalizeRoomCode(value) {
+            return (value || '')
+                .toUpperCase()
+                .replace(/[^A-Z0-9]/g, '')
+                .slice(0, 8);
+        }
 
-            const ref = lobbyCollection().doc(session.peerId);
-            session.lobbyRef = ref;
-            await ref.set({
-                peerId: session.peerId,
-                uid: session.userId,
-                status: 'waiting',
-                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
+        function generateRoomCode() {
+            const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+            const characters = [];
+            for (let index = 0; index < 6; index += 1) {
+                characters.push(alphabet[Math.floor(Math.random() * alphabet.length)]);
+            }
+            return characters.join('');
+        }
 
-            if (!session.lobbyUnsub) {
-                session.lobbyUnsub = lobbyCollection()
-                    .where('status', '==', 'waiting')
-                    .limit(30)
-                    .onSnapshot(snapshot => {
-                        if (session.channel || session.connectAttemptPeerId || gameState === 'PLAYING') return;
-                        const peers = [];
-                        const now = Date.now();
-                        snapshot.forEach(doc => {
-                            const data = doc.data();
-                            if (data && data.peerId && data.peerId !== session.peerId) {
-                                const timestamp = data.updatedAt || data.createdAt;
-                                const ageMs = timestamp && typeof timestamp.toMillis === 'function' ? now - timestamp.toMillis() : null;
-                                if (ageMs !== null && ageMs > LOBBY_STALE_MS) {
-                                    doc.ref.delete().catch(() => {});
-                                    return;
-                                }
-                                peers.push(data.peerId);
-                            }
-                        });
-                        if (!peers.length) {
-                            setConnectionStatus('ロビー待機中...');
-                            return;
-                        }
+        function setRoomListStatus(text) {
+            if (ui.roomListStatus) ui.roomListStatus.innerText = text || '';
+        }
 
-                        const connectable = peers.filter(peerId => session.peerId > peerId);
-                        if (!connectable.length) {
-                            setConnectionStatus('対戦相手を探索中...');
-                            return;
-                        }
-
-                        const targetPeerId = connectable[Math.floor(Math.random() * connectable.length)];
-                        connectToPeerFromLobby(targetPeerId);
-                    }, error => {
-                        setConnectionStatus(`ロビー監視エラー: ${error.message || 'unknown'}`);
-                    });
+        function renderRoomList(rooms) {
+            if (!ui.roomList) return;
+            if (!rooms.length) {
+                ui.roomList.innerHTML = '<div class="text-center text-gray-400 text-xs md:text-sm py-3">空いている部屋はありません</div>';
+                return;
             }
 
-            setConnectionStatus('ロビー待機中...');
+            ui.roomList.innerHTML = rooms.map(room => {
+                const code = room.roomCode || room.id;
+                const hostName = room.hostName || 'UNKNOWN';
+                return `
+                    <button onclick="joinRoomByCode('${code}')" class="w-full text-left rounded-xl border border-cyan-400/30 bg-black/40 hover:bg-cyan-500/10 px-3 py-2 transition-colors">
+                        <div class="flex items-center justify-between gap-3">
+                            <div class="min-w-0">
+                                <div class="text-cyan-100 font-black text-sm md:text-base tracking-wider">${code}</div>
+                                <div class="text-[10px] md:text-xs text-gray-300 truncate">HOST: ${hostName}</div>
+                            </div>
+                            <div class="text-cyan-300 font-black text-xs md:text-sm">参加</div>
+                        </div>
+                    </button>
+                `;
+            }).join('');
         }
 
-        function tryAutoLobby() {
-            if (!session.peerReady || !session.authReady) return;
-            if (session.channel || gameState === 'PLAYING') return;
-            registerSelfInLobby().catch(error => {
-                setConnectionStatus(`ロビー登録エラー: ${error.message || 'unknown'}`);
-            });
-        }
-
-        function startMatching() {
-            if (session.onlineRequested) {
-                tryAutoLobby();
+        function stopRoomDiscovery() {
+            if (session.roomListUnsub) {
+                session.roomListUnsub();
+                session.roomListUnsub = null;
             }
         }
 
-        function startOnlineMatch() {
+        async function cleanupRoomState(deleteRoom = true) {
+            stopRoomDiscovery();
+            if (session.roomHeartbeatTimer) {
+                clearInterval(session.roomHeartbeatTimer);
+                session.roomHeartbeatTimer = null;
+            }
+            if (deleteRoom && session.roomRef) {
+                const ref = session.roomRef;
+                session.roomRef = null;
+                try {
+                    await ref.delete();
+                } catch (_) {
+                }
+            } else {
+                session.roomRef = null;
+            }
+            session.roomCode = null;
+            session.roomAction = null;
+            session.pendingRoomCode = null;
+        }
+
+        function maybeRunRoomAction() {
+            if (!session.peerReady || !session.authReady || !session.roomAction) return;
+
+            if (session.roomAction === 'CREATE' && !session.roomRef) {
+                createRoomRecord().catch(error => {
+                    setConnectionStatus(`部屋作成エラー: ${error.message || 'unknown'}`);
+                });
+                return;
+            }
+
+            if (session.roomAction === 'SEARCH') {
+                startRoomDiscovery();
+                return;
+            }
+
+            if (session.roomAction === 'JOIN' && session.pendingRoomCode) {
+                const pendingCode = session.pendingRoomCode;
+                session.pendingRoomCode = null;
+                joinRoomByCode(pendingCode);
+            }
+        }
+
+        function createRoom() {
             savePlayerName(ui.playerNameInput ? ui.playerNameInput.value : session.playerName);
             session.onlineRequested = true;
-            session.mode = 'ONLINE';
-            session.localSide = 'BLUE';
-            session.remoteSide = 'RED';
+            session.roomAction = 'CREATE';
+            session.pendingRoomCode = null;
             session.opponentName = 'OPPONENT';
             updateControlLabel();
             initFirebaseLobby();
             initPeer();
-            startMatching();
+            maybeRunRoomAction();
+        }
+
+        function searchRooms() {
+            savePlayerName(ui.playerNameInput ? ui.playerNameInput.value : session.playerName);
+            session.onlineRequested = true;
+            session.roomAction = 'SEARCH';
+            session.pendingRoomCode = null;
+            session.opponentName = 'OPPONENT';
+            updateControlLabel();
+            initFirebaseLobby();
+            initPeer();
+            maybeRunRoomAction();
+        }
+
+        async function createRoomRecord() {
+            if (!session.db || !session.peerReady || !session.authReady) return;
+
+            await cleanupRoomState(true);
+
+            const roomCode = generateRoomCode();
+            const ref = roomCollection().doc(roomCode);
+            session.roomCode = roomCode;
+            session.matchId = roomCode;
+            session.roomRef = ref;
+            session.onlineRequested = true;
+            session.roomAction = 'CREATE';
+            session.mode = 'ONLINE';
+            session.isHost = true;
+            session.localSide = 'RED';
+            session.remoteSide = 'BLUE';
+            updateControlLabel();
+
+            await ref.set({
+                roomCode,
+                hostPeerId: session.peerId,
+                hostName: session.playerName,
+                hostUid: session.userId,
+                status: 'waiting',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            session.roomHeartbeatTimer = setInterval(() => {
+                if (!session.roomRef) return;
+                session.roomRef.set({
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true }).catch(() => {});
+            }, 30000);
+
+            setConnectionStatus(`部屋を作成しました: ${roomCode}`);
+            setRoomListStatus('相手の参加を待っています');
+            if (ui.roomList) ui.roomList.innerHTML = '';
+        }
+
+        function startRoomDiscovery() {
+            if (!session.db || !session.peerReady || !session.authReady) return;
+
+            stopRoomDiscovery();
+            session.onlineRequested = true;
+            session.roomAction = 'SEARCH';
+            session.mode = 'ONLINE';
+            session.isHost = false;
+            session.localSide = 'BLUE';
+            session.remoteSide = 'RED';
+            session.roomCode = null;
+            session.roomRef = null;
+            updateControlLabel();
+            setConnectionStatus('部屋を検索中...');
+            setRoomListStatus('部屋を検索中...');
+
+            session.roomListUnsub = roomCollection()
+                .where('status', '==', 'waiting')
+                .limit(20)
+                .onSnapshot(snapshot => {
+                    const rooms = [];
+                    const now = Date.now();
+                    snapshot.forEach(doc => {
+                        const data = doc.data();
+                        if (!data || !data.roomCode || !data.hostPeerId) return;
+                        if (data.hostPeerId === session.peerId) return;
+                        const timestamp = data.updatedAt || data.createdAt;
+                        const ageMs = timestamp && typeof timestamp.toMillis === 'function' ? now - timestamp.toMillis() : null;
+                        if (ageMs !== null && ageMs > LOBBY_STALE_MS) {
+                            doc.ref.delete().catch(() => {});
+                            return;
+                        }
+                        rooms.push({ id: doc.id, ...data });
+                    });
+                    renderRoomList(rooms);
+                    setRoomListStatus(rooms.length ? '参加できる部屋があります' : '空いている部屋はありません');
+                }, error => {
+                    setRoomListStatus(`部屋検索エラー: ${error.message || 'unknown'}`);
+                });
+        }
+
+        async function joinRoomByCode(roomCodeInput) {
+            const roomCode = normalizeRoomCode(roomCodeInput);
+            if (!roomCode) {
+                setConnectionStatus('部屋コードを入力してください');
+                return;
+            }
+
+            if (!session.db || !session.peerReady || !session.authReady) {
+                session.pendingRoomCode = roomCode;
+                session.roomAction = 'JOIN';
+                setConnectionStatus('接続準備中...');
+                return;
+            }
+
+            const roomSnap = await roomCollection().doc(roomCode).get();
+            if (!roomSnap.exists) {
+                setConnectionStatus('部屋が見つかりません');
+                return;
+            }
+
+            const room = roomSnap.data();
+            if (!room || room.status !== 'waiting' || !room.hostPeerId) {
+                setConnectionStatus('その部屋には参加できません');
+                return;
+            }
+
+            await cleanupRoomState(false);
+
+            session.onlineRequested = true;
+            session.roomAction = 'JOIN';
+            session.roomCode = roomCode;
+            session.mode = 'ONLINE';
+            session.isHost = false;
+            session.localSide = 'BLUE';
+            session.remoteSide = 'RED';
+            session.matchId = roomCode;
+            updateControlLabel();
+            setConnectionStatus(`部屋 ${roomCode} に接続中...`);
+
+            const remoteConn = session.peer.connect(room.hostPeerId, { reliable: true, serialization: 'json' });
+            conn = remoteConn;
+            session.channel = remoteConn;
+            session.peerIdRemote = room.hostPeerId;
+
+            remoteConn.on('open', () => {
+                acceptPeerConnection(remoteConn, false);
+            });
+
+            remoteConn.on('error', err => {
+                setConnectionStatus(`接続エラー: ${err.type || err.message || 'unknown'}`);
+                session.channel = null;
+            });
+        }
+
+        function joinRoomByCodeFromInput() {
+            joinRoomByCode(ui.roomCodeInput ? ui.roomCodeInput.value : '');
         }
 
         function setupConnection() {
@@ -732,14 +942,19 @@
         // --- 1. 認証 ---
         async function initAuth() {
             const auth = firebase.auth();
-            const matchBtn = ui.matchBtn;
+            const createRoomBtn = ui.createRoomBtn;
+            const searchRoomBtn = ui.searchRoomBtn;
+            const joinRoomBtn = ui.joinRoomBtn;
             const statusEl = ui.matchStatus;
             try {
                 const result = await auth.signInAnonymously();
                 user = result.user;
                 console.log('Authenticated as:', user.uid);
                 // 認証成功時のみボタンを押せるようにする
-                if (matchBtn) matchBtn.disabled = false;
+                if (createRoomBtn) createRoomBtn.disabled = false;
+                if (searchRoomBtn) searchRoomBtn.disabled = false;
+                if (joinRoomBtn) joinRoomBtn.disabled = false;
+                maybeRunRoomAction();
             } catch (error) {
                 // エラーの「詳細」をコンソールに出力する
                 console.error('★認証エラーの正体(Code):', error.code);
@@ -750,6 +965,7 @@
 
         function initFirebaseLobby() {
             if (session.firebaseReady) {
+                maybeRunRoomAction();
                 return;
             }
 
@@ -776,6 +992,7 @@
                 if (!user) return;
                 session.authReady = true;
                 session.userId = user.uid;
+                maybeRunRoomAction();
             });
 
             initAuth();
@@ -785,9 +1002,7 @@
         function initPeer() {
             if (session.peer) {
                 updatePeerIdUI();
-                if (session.onlineRequested) {
-                    startMatching();
-                }
+                maybeRunRoomAction();
                 return;
             }
             console.log("★ボタンが押されました！PeerJSに接続します...");
@@ -804,9 +1019,7 @@
                 console.log("★My Peer ID 発行成功:", myId);
                 updatePeerIdUI();
                 setConnectionStatus(`ID発行完了: ${session.peerId}`);
-                if (session.onlineRequested) {
-                    startMatching();
-                }
+                maybeRunRoomAction();
             });
 
             peer.on('connection', (connection) => {
@@ -823,10 +1036,6 @@
                 setConnectionStatus(`Peer エラー: ${err.type || err.message || 'unknown'}`);
                 updatePeerIdUI();
             });
-        }
-
-        function initPeerNetworking() {
-            initPeer();
         }
 
         function getMatchIdForPeer(remotePeerId) {
@@ -849,6 +1058,7 @@
             session.peerIdRemote = conn.peer;
             session.localSide = isHostSide ? 'RED' : 'BLUE';
             session.remoteSide = isHostSide ? 'BLUE' : 'RED';
+            session.matchId = session.roomCode || getMatchIdForPeer(conn.peer);
 
             let finalized = false;
             const finalizeConnection = () => {
@@ -856,7 +1066,7 @@
                 finalized = true;
                 const roleText = isHostSide ? 'ホストとして接続しました' : 'ゲストとして接続しました';
                 setConnectionStatus(roleText);
-                cleanupLobby().finally(() => {
+                cleanupRoomState(isHostSide).finally(() => {
                     startGame('ONLINE', { matchId: session.matchId, isHost: session.isHost, localSide: session.localSide });
                     sendPeerMessage({ type: 'hello', matchId: session.matchId, peerId: session.peerId, role: isHostSide ? 'HOST' : 'GUEST', playerName: session.playerName, localSide: session.localSide });
                     if (isHostSide) {
@@ -913,47 +1123,6 @@
         function sendPeerMessage(payload) {
             if (!session.channel || !session.channel.open) return;
             session.channel.send(payload);
-        }
-
-        function connectToPeerFromLobby(remoteId) {
-            if (!session.peerReady || !remoteId) return;
-            if (session.channel || session.connectAttemptPeerId) return;
-
-            session.connectAttemptPeerId = remoteId;
-            session.mode = 'ONLINE';
-            session.isHost = false;
-            session.localSide = 'BLUE';
-            session.remoteSide = 'RED';
-            session.matchId = getMatchIdForPeer(remoteId);
-            setConnectionStatus('マッチング中... 接続しています');
-            updateControlLabel();
-
-            const conn = session.peer.connect(remoteId, { reliable: true, serialization: 'json' });
-            session.channel = conn;
-            session.peerIdRemote = remoteId;
-
-            conn.on('open', () => {
-                acceptPeerConnection(conn, false);
-            });
-
-            conn.on('error', err => {
-                setConnectionStatus(`接続エラー: ${err.type || err.message || 'unknown'}`);
-                session.channel = null;
-                session.connectAttemptPeerId = null;
-                tryAutoLobby();
-            });
-
-            conn.on('close', () => {
-                if (session.channel === conn) {
-                    session.channel = null;
-                    session.connectAttemptPeerId = null;
-                }
-            });
-        }
-
-        function copyMyPeerId() {
-            if (!session.peerReady || !ui.myPeerId) return;
-            navigator.clipboard?.writeText(ui.myPeerId.value || session.peerId).catch(() => {});
         }
 
         function createBallId() {
@@ -1251,16 +1420,20 @@
         function showStartScreen() {
             if (animationId) cancelAnimationFrame(animationId);
             stopOnlineSession();
+            cleanupRoomState(true);
             session.mode = 'LOCAL';
             session.localSide = 'BLUE';
             session.remoteSide = 'RED';
             session.isHost = false;
             session.onlineRequested = false;
+            session.roomAction = null;
             session.opponentName = 'OPPONENT';
             ui.gameOverScreen.classList.add('hidden');
             ui.gameOverScreen.classList.remove('flex');
             ui.startScreen.classList.remove('hidden');
             ui.startScreen.classList.add('flex');
+            if (ui.roomList) ui.roomList.innerHTML = '';
+            setRoomListStatus('部屋を作るか、部屋コードで参加してください');
             setMatchStatus('');
             updateControlLabel();
             gameState = 'START';
@@ -1304,12 +1477,12 @@
                 session.localSide = 'BLUE';
                 session.remoteSide = 'RED';
                 updateControlLabel();
-                setConnectionStatus('オンライン対戦を開始してください');
+                setConnectionStatus('部屋を作るか、部屋コードで参加してください');
                 return;
             }
 
             if (mode === 'LOCAL') {
-                cleanupLobby();
+                cleanupRoomState(true);
             }
 
             session.mode = mode;
@@ -2205,6 +2378,11 @@
                 ui.playerNameInput.addEventListener('input', () => {
                     savePlayerName(ui.playerNameInput.value);
                     updateControlLabel();
+                });
+            }
+            if (ui.roomCodeInput) {
+                ui.roomCodeInput.addEventListener('input', () => {
+                    ui.roomCodeInput.value = normalizeRoomCode(ui.roomCodeInput.value);
                 });
             }
             initFirebaseLobby();
