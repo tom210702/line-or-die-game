@@ -91,7 +91,7 @@
             <button onclick="startGame('LOCAL')" class="flex-1 px-8 py-3 md:py-4 bg-white text-black font-black text-base md:text-lg rounded-full hover:bg-gray-200 hover:scale-105 transition-transform active:scale-95 shadow-[0_0_30px_rgba(255,255,255,0.5)]">
                 AIと対戦
             </button>
-            <button onclick="startGame('ONLINE')" class="flex-1 px-8 py-3 md:py-4 bg-cyan-400 text-black font-black text-base md:text-lg rounded-full hover:bg-cyan-300 hover:scale-105 transition-transform active:scale-95 shadow-[0_0_24px_rgba(34,211,238,0.45)]">
+            <button id="matchBtn" onclick="startGame('ONLINE')" disabled class="flex-1 px-8 py-3 md:py-4 bg-cyan-400 text-black font-black text-base md:text-lg rounded-full hover:bg-cyan-300 hover:scale-105 transition-transform active:scale-95 shadow-[0_0_24px_rgba(34,211,238,0.45)]">
                 オンライン対戦
             </button>
         </div>
@@ -449,6 +449,7 @@
             blueTeamLabel: document.getElementById('blueTeamLabel'),
             localItemsLabel: document.getElementById('localItemsLabel'),
             myPeerId: document.getElementById('myPeerId'),
+            matchBtn: document.getElementById('matchBtn'),
             bluePtTxt: document.getElementById('bluePtTxt'),
             startScreen: document.getElementById('startScreen'),
             matchStatus: document.getElementById('matchStatus'),
@@ -502,15 +503,16 @@
         let nextBallId = 1;
         let speedRampMultiplier = 1.0;
         let gameStartAtMs = 0;
+        let user = null;
 
         const FIREBASE_CONFIG = window.__firebaseConfig || window.firebaseConfig || {
-            apiKey: "AIzaSyCLE3SAfGd1zKVe5kCy8saYnGwYhMRR5LA",
-            authDomain: "line-or-die-game-616c2.firebaseapp.com",
-            projectId: "line-or-die-game-616c2",
-            storageBucket: "line-or-die-game-616c2.firebasestorage.app",
-            messagingSenderId: "63011164623",
-            appId: "1:63011164623:web:f35c294154f1f8069d42ba",
-            measurementId: "G-94F1B4301T"
+            apiKey: "AIzaSyC18eu1bJFzIBjtGjjLD9WFZOQA1e049hI",
+            authDomain: "line-or-die-game.firebaseapp.com",
+            projectId: "line-or-die-game",
+            storageBucket: "line-or-die-game.firebasestorage.app",
+            messagingSenderId: "844237674824",
+            appId: "1:844237674824:web:5ccaa21db40d01d6a57b7d",
+            measurementId: "G-2S9DG4VRG8"
         };
 
         const APP_ID = window.__appId || window.appId || 'line-or-die';
@@ -648,6 +650,25 @@
             });
         }
 
+        // --- 1. 認証 ---
+        async function initAuth() {
+            const auth = firebase.auth();
+            const matchBtn = ui.matchBtn;
+            const statusEl = ui.matchStatus;
+            try {
+                const result = await auth.signInAnonymously();
+                user = result.user;
+                console.log('Authenticated as:', user.uid);
+                // 認証成功時のみボタンを押せるようにする
+                if (matchBtn) matchBtn.disabled = false;
+            } catch (error) {
+                // エラーの「詳細」をコンソールに出力する
+                console.error('★認証エラーの正体(Code):', error.code);
+                console.error('★認証エラーの詳細(Message):', error.message);
+                if (statusEl) statusEl.innerText = '認証エラー: ' + error.code;
+            }
+        }
+
         function initFirebaseLobby() {
             if (session.firebaseReady) {
                 tryAutoLobby();
@@ -680,9 +701,7 @@
                 tryAutoLobby();
             });
 
-            auth.signInAnonymously().catch(error => {
-                setConnectionStatus(`匿名認証エラー: ${error.message || 'unknown'}`);
-            });
+            initAuth();
         }
 
         function initPeerNetworking() {
