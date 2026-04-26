@@ -1,0 +1,2110 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Red vs Blue: Ultimate AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+    <style>
+        body {
+            background-color: #050505;
+            overscroll-behavior-y: none;
+            touch-action: none;
+        }
+        .canvas-container {
+            flex: 1;
+            min-height: 0;
+            min-width: 0; 
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px;
+            position: relative;
+        }
+        canvas {
+            max-width: 100%;
+            max-height: 100%;
+            aspect-ratio: 1 / 1;
+            object-fit: contain;
+            filter: drop-shadow(0 0 10px rgba(255,255,255,0.05));
+        }
+        button:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        .log-item {
+            animation: slideIn 0.2s ease-out forwards;
+        }
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(50%); }
+        }
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.3); 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.2); 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255,255,255,0.4); 
+        }
+        .pb-safe {
+            padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
+        }
+    </style>
+</head>
+<body class="w-screen h-screen overflow-hidden flex flex-col font-sans text-white relative">
+
+    <!-- スタート画面 -->
+    <div id="startScreen" class="absolute inset-0 bg-black/90 flex flex-col items-center justify-center z-[100] backdrop-blur-sm">
+        <h1 class="text-5xl md:text-7xl font-black mb-4 tracking-wider text-center flex flex-col gap-2">
+            <span class="text-[#ff003c] drop-shadow-[0_0_15px_rgba(255,0,60,0.8)]">RED (AI)</span>
+            <span class="text-white text-3xl">VS</span>
+            <span class="text-[#0066ff] drop-shadow-[0_0_15px_rgba(0,102,255,0.8)]">BLUE (YOU)</span>
+        </h1>
+        <div class="text-gray-400 mb-6 text-center px-4 max-w-md text-[10px] md:text-sm leading-relaxed">
+            壁や<span class="text-yellow-400 font-bold">球体同士</span>の衝突、または<span class="text-yellow-400 font-bold">時間経過</span>で<span class="text-yellow-400 font-bold">ポイント</span>を獲得。<br>
+            相手のラインに触れて奪い取れ！<br><br>
+            <span class="text-teal-300 font-bold">竜巻</span>：3秒間、敵の球体を中央に引き寄せる<br>
+            <span class="text-sky-300 font-bold">高気圧</span>：3秒間、自軍の球体が外周を綺麗に回る！<br>
+            <span class="text-orange-400 font-bold">巨大化</span>：相手と衝突時にラインを<span class="text-red-400 font-bold text-base">80%</span>奪う<br>
+            <span class="text-purple-400 font-bold">スピリット</span>：3秒で消える分身を1つ放ち、親にラインを奪う<br>
+            ※球体加速以外のアイテムには<span class="text-pink-400 font-bold">クールタイム(10秒)</span>あり。<br><br>
+            <span class="text-white font-bold text-sm md:text-base border-b border-white pb-1 inline-block mb-1">勝利条件 🏁</span><br>
+            先にラインが<span class="text-yellow-400 font-bold text-sm md:text-base">200本</span>に到達するか、<br>
+            相手のメイン球体を<span class="text-red-400 font-bold">0本にして消滅</span>させれば勝利。
+        </div>
+        <div class="flex flex-col sm:flex-row gap-3 w-full max-w-md px-4">
+            <button onclick="startGame('LOCAL')" class="flex-1 px-8 py-3 md:py-4 bg-white text-black font-black text-base md:text-lg rounded-full hover:bg-gray-200 hover:scale-105 transition-transform active:scale-95 shadow-[0_0_30px_rgba(255,255,255,0.5)]">
+                AIと対戦
+            </button>
+            <button onclick="startGame('ONLINE')" class="flex-1 px-8 py-3 md:py-4 bg-cyan-400 text-black font-black text-base md:text-lg rounded-full hover:bg-cyan-300 hover:scale-105 transition-transform active:scale-95 shadow-[0_0_24px_rgba(34,211,238,0.45)]">
+                オンライン対戦
+            </button>
+        </div>
+        <div class="mt-5 w-full max-w-md px-4">
+            <div class="rounded-2xl border border-cyan-400/30 bg-cyan-950/20 backdrop-blur-md p-4 md:p-5 shadow-[0_0_28px_rgba(34,211,238,0.12)]">
+                <div class="text-cyan-200 text-xs md:text-sm font-black tracking-[0.25em] mb-3">AUTO LOBBY MATCH</div>
+                <label class="block text-[10px] md:text-xs text-gray-300 font-bold mb-1">あなたのID</label>
+                <div class="flex gap-2 mb-3">
+                    <input id="myPeerId" type="text" readonly class="flex-1 rounded-xl bg-black/50 border border-cyan-500/30 px-3 py-2 text-xs md:text-sm text-cyan-100 font-mono outline-none select-all" value="発行中...">
+                    <button onclick="copyMyPeerId()" class="px-3 py-2 rounded-xl bg-cyan-400 text-black font-black text-xs md:text-sm hover:bg-cyan-300 transition-colors">COPY</button>
+                </div>
+                <div class="text-[10px] md:text-xs text-gray-300 mb-1">ID発行後、Firestoreロビーへ自動登録してランダムマッチングします</div>
+                <div id="matchStatus" class="mt-3 text-cyan-200 text-center text-xs md:text-sm font-bold tracking-wider min-h-[1.25rem]"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ゲームオーバー画面 -->
+    <div id="gameOverScreen" class="hidden absolute inset-0 bg-black/40 flex-col items-center justify-center z-[90]">
+        <div class="bg-gray-950/80 border border-gray-700 rounded-3xl p-8 md:p-10 flex flex-col items-center shadow-[0_0_50px_rgba(0,0,0,0.8)] backdrop-blur-md">
+            <h1 id="winnerText" class="text-5xl md:text-6xl font-black mb-2 tracking-wider"></h1>
+            <p id="winReasonText" class="text-gray-300 mb-8 text-lg md:text-xl font-bold"></p>
+            
+            <div class="flex flex-col sm:flex-row gap-4 w-full">
+                <button onclick="startGame(session.mode)" class="flex-1 px-8 py-3 bg-white text-black font-black rounded-full hover:bg-gray-200 transition-transform active:scale-95 shadow-[0_0_20px_rgba(255,255,255,0.3)]">
+                    REMATCH
+                </button>
+                <button onclick="showStartScreen()" class="flex-1 px-8 py-3 bg-transparent border-2 border-gray-400 text-gray-300 font-black rounded-full hover:bg-gray-800 hover:text-white transition-transform active:scale-95">
+                    TITLE
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ヘッダー：独立したスコアボード -->
+    <div class="flex-none w-full p-2 md:p-4 flex flex-col gap-2 z-10 bg-gradient-to-b from-black/80 to-transparent">
+        <div class="flex flex-col gap-2 w-full max-w-2xl mx-auto">
+            <!-- RED Bar -->
+            <div class="w-full h-5 md:h-6 bg-red-950/50 rounded-full relative overflow-hidden flex items-center shadow-[0_0_10px_rgba(255,0,60,0.3)] border border-red-900">
+                <div id="redFill" class="absolute top-0 left-0 h-full bg-[#ff003c] transition-all duration-300" style="width: 0%;"></div>
+                <div class="relative z-10 flex justify-between w-full px-4 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] text-xs md:text-sm font-black tracking-widest text-white">
+                    <span id="redTeamLabel">RED (AI)</span>
+                    <span><span id="redScoreTxt">0</span> / 200</span>
+                </div>
+            </div>
+            <!-- BLUE Bar -->
+            <div class="w-full h-5 md:h-6 bg-blue-950/50 rounded-full relative overflow-hidden flex items-center shadow-[0_0_10px_rgba(0,102,255,0.3)] border border-blue-900">
+                <div id="blueFill" class="absolute top-0 left-0 h-full bg-[#0066ff] transition-all duration-300" style="width: 0%;"></div>
+                <div class="relative z-10 flex justify-between w-full px-4 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] text-xs md:text-sm font-black tracking-widest text-white">
+                    <span id="blueTeamLabel">BLUE (YOU)</span>
+                    <span><span id="blueScoreTxt">0</span> / 200</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- メイン領域：キャンバス + ログエリア -->
+    <div class="flex-1 flex flex-row overflow-hidden relative">
+        <div class="canvas-container flex-1" id="canvasWrapper">
+            <canvas id="gameCanvas" width="1000" height="1000"></canvas>
+            <div id="centerAnnounce" class="absolute pointer-events-none opacity-0 transition-opacity duration-300 text-3xl font-black tracking-widest drop-shadow-lg text-white"></div>
+        </div>
+        
+        <div id="logContainer" class="w-32 md:w-56 bg-gray-900/60 border-l border-gray-800 p-2 overflow-y-auto flex flex-col gap-1.5 text-[10px] md:text-xs absolute right-0 top-0 h-full z-10 md:relative md:z-0 backdrop-blur-sm pointer-events-none">
+            <div class="text-gray-400 text-center border-b border-gray-700 pb-1 mb-1 font-black sticky top-0 bg-gray-900/80 backdrop-blur-md">BATTLE LOG</div>
+        </div>
+    </div>
+
+    <!-- フッター：アイテムコントロールパネル -->
+    <div class="flex-none shrink-0 flex flex-col border-t border-gray-800 bg-[#0a0a0a] p-1.5 md:p-3 pb-safe shadow-[0_-10px_30px_rgba(0,0,0,0.8)] z-10">
+        <div class="flex justify-between items-center mb-1.5 px-2 max-w-4xl mx-auto w-full">
+            <span id="localItemsLabel" class="text-[#0066ff] font-black tracking-widest text-sm md:text-lg drop-shadow-[0_0_8px_rgba(0,102,255,0.8)]">YOUR ITEMS</span>
+            <span class="text-yellow-400 font-black text-sm md:text-lg tracking-wider">POINTS: <span id="bluePtTxt" class="text-xl md:text-2xl">0</span></span>
+        </div>
+        
+        <div class="grid grid-cols-5 gap-1 md:gap-1.5 max-w-4xl mx-auto w-full">
+            <button id="btnBlueSpeed" onclick="buyLocalItem('SPEED')" class="bg-blue-950/40 hover:bg-blue-900/60 border border-blue-900/50 rounded flex flex-col items-center justify-center transition-all active:scale-95 group p-0.5 relative overflow-hidden h-14 sm:h-16">
+                <span id="txtBlueSpeed" class="text-[8px] sm:text-[9px] md:text-xs font-bold text-gray-200 text-center leading-tight">球体加速<br>(+5%)</span>
+                <span class="text-[8px] sm:text-[9px] text-yellow-500 font-black mt-0.5 group-disabled:text-gray-500">3 pt</span>
+            </button>
+            
+            <button id="btnBlueAdd" onclick="buyLocalItem('ADD')" class="bg-blue-950/40 hover:bg-blue-900/60 border border-blue-900/50 rounded flex flex-col items-center justify-center transition-all active:scale-95 group p-0.5 relative overflow-hidden h-14 sm:h-16">
+                <span class="text-[8px] sm:text-[9px] md:text-xs font-bold text-gray-200">球体 +1</span>
+                <span class="text-[8px] sm:text-[9px] text-yellow-500 font-black mt-0.5 group-disabled:text-gray-500">15 pt</span>
+                <div id="cdBlueAdd" class="absolute inset-0 bg-black/80 flex items-center justify-center font-black text-pink-400 text-xs md:text-sm z-20 hidden"></div>
+            </button>
+            
+            <button id="btnBlueFreeze" onclick="buyLocalItem('FREEZE')" class="bg-blue-950/40 hover:bg-blue-900/60 border border-blue-900/50 rounded flex flex-col items-center justify-center transition-all active:scale-95 group p-0.5 relative overflow-hidden h-14 sm:h-16">
+                <span class="text-[8px] sm:text-[9px] md:text-xs font-bold text-blue-300">敵フリーズ</span>
+                <span class="text-[8px] sm:text-[9px] text-yellow-500 font-black mt-0.5 group-disabled:text-gray-500">12 pt</span>
+                <div id="cdBlueFreeze" class="absolute inset-0 bg-black/80 flex items-center justify-center font-black text-pink-400 text-xs md:text-sm z-20 hidden"></div>
+            </button>
+            
+            <button id="btnBlueInv" onclick="buyLocalItem('INV')" class="bg-blue-950/40 hover:bg-blue-900/60 border border-blue-900/50 rounded flex flex-col items-center justify-center transition-all active:scale-95 group relative overflow-hidden p-0.5 h-14 sm:h-16">
+                <div class="absolute inset-0 bg-gradient-to-r from-transparent via-yellow-500/10 to-transparent w-[200%] animate-[shimmer_2s_infinite] group-disabled:hidden"></div>
+                <span class="text-[8px] sm:text-[9px] md:text-xs font-bold text-yellow-300 relative z-10">自軍無敵</span>
+                <span class="text-[8px] sm:text-[9px] text-yellow-500 font-black mt-0.5 relative z-10 group-disabled:text-gray-500">10 pt</span>
+                <div id="cdBlueInv" class="absolute inset-0 bg-black/80 flex items-center justify-center font-black text-pink-400 text-xs md:text-sm z-30 hidden"></div>
+            </button>
+            
+            <button id="btnBlueGiant" onclick="buyLocalItem('GIANT')" class="bg-blue-950/40 hover:bg-blue-900/60 border border-blue-900/50 rounded flex flex-col items-center justify-center transition-all active:scale-95 group relative overflow-hidden p-0.5 h-14 sm:h-16">
+                <span class="text-[8px] sm:text-[9px] md:text-xs font-bold text-orange-400 relative z-10 text-center leading-tight">巨大化(5s)</span>
+                <span class="text-[8px] sm:text-[9px] text-yellow-500 font-black mt-0.5 relative z-10 group-disabled:text-gray-500">8 pt</span>
+                <div id="cdBlueGiant" class="absolute inset-0 bg-black/80 flex items-center justify-center font-black text-pink-400 text-xs md:text-sm z-20 hidden"></div>
+            </button>
+            
+            <button id="btnBlueSmall" onclick="buyLocalItem('SMALL')" class="bg-blue-950/40 hover:bg-blue-900/60 border border-blue-900/50 rounded flex flex-col items-center justify-center transition-all active:scale-95 group relative overflow-hidden p-0.5 h-14 sm:h-16">
+                <span class="text-[8px] sm:text-[9px] md:text-xs font-bold text-green-400 relative z-10 text-center leading-tight">極小&加速</span>
+                <span class="text-[8px] sm:text-[9px] text-yellow-500 font-black mt-0.5 relative z-10 group-disabled:text-gray-500">10 pt</span>
+                <div id="cdBlueSmall" class="absolute inset-0 bg-black/80 flex items-center justify-center font-black text-pink-400 text-xs md:text-sm z-20 hidden"></div>
+            </button>
+
+            <button id="btnBlueSpirit" onclick="buyLocalItem('SPIRIT')" class="bg-blue-950/40 hover:bg-blue-900/60 border border-blue-900/50 rounded flex flex-col items-center justify-center transition-all active:scale-95 group relative overflow-hidden p-0.5 h-14 sm:h-16">
+                <span class="text-[8px] sm:text-[9px] md:text-xs font-bold text-purple-300 relative z-10 text-center leading-tight">スピリット</span>
+                <span class="text-[8px] sm:text-[9px] text-yellow-500 font-black mt-0.5 relative z-10 group-disabled:text-gray-500">10 pt</span>
+                <div id="cdBlueSpirit" class="absolute inset-0 bg-black/80 flex items-center justify-center font-black text-pink-400 text-xs md:text-sm z-20 hidden"></div>
+            </button>
+
+            <button id="btnBlueDouble" onclick="buyLocalItem('DOUBLE')" class="bg-blue-950/40 hover:bg-blue-900/60 border border-blue-900/50 rounded flex flex-col items-center justify-center transition-all active:scale-95 group relative overflow-hidden p-0.5 h-14 sm:h-16">
+                <span class="text-[8px] sm:text-[9px] md:text-xs font-bold text-cyan-400 relative z-10 text-center leading-tight">ライン2倍(3s)</span>
+                <span class="text-[8px] sm:text-[9px] text-yellow-500 font-black mt-0.5 relative z-10 group-disabled:text-gray-500">15 pt</span>
+                <div id="cdBlueDouble" class="absolute inset-0 bg-black/80 flex items-center justify-center font-black text-pink-400 text-xs md:text-sm z-20 hidden"></div>
+            </button>
+
+            <button id="btnBlueTornado" onclick="buyLocalItem('TORNADO')" class="bg-blue-950/40 hover:bg-blue-900/60 border border-blue-900/50 rounded flex flex-col items-center justify-center transition-all active:scale-95 group relative overflow-hidden p-0.5 h-14 sm:h-16">
+                <span class="text-[8px] sm:text-[9px] md:text-xs font-bold text-teal-300 relative z-10 text-center leading-tight">竜巻(3s)</span>
+                <span class="text-[8px] sm:text-[9px] text-yellow-500 font-black mt-0.5 relative z-10 group-disabled:text-gray-500">8 pt</span>
+                <div id="cdBlueTornado" class="absolute inset-0 bg-black/80 flex items-center justify-center font-black text-pink-400 text-xs md:text-sm z-20 hidden"></div>
+            </button>
+
+            <button id="btnBlueAnti" onclick="buyLocalItem('ANTI')" class="bg-blue-950/40 hover:bg-blue-900/60 border border-blue-900/50 rounded flex flex-col items-center justify-center transition-all active:scale-95 group relative overflow-hidden p-0.5 h-14 sm:h-16">
+                <span class="text-[8px] sm:text-[9px] md:text-xs font-bold text-sky-300 relative z-10 text-center leading-tight">高気圧(3s)</span>
+                <span class="text-[8px] sm:text-[9px] text-yellow-500 font-black mt-0.5 relative z-10 group-disabled:text-gray-500">10 pt</span>
+                <div id="cdBlueAnti" class="absolute inset-0 bg-black/80 flex items-center justify-center font-black text-pink-400 text-xs md:text-sm z-20 hidden"></div>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // --- Web Audio API (効果音) ---
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        const audioCtx = new AudioContext();
+
+        let lastHitSoundTime = 0;
+        function playHitSound() {
+            if (audioCtx.state === 'suspended') return;
+            let nowMs = Date.now();
+            if (nowMs - lastHitSoundTime < 60) return; 
+            lastHitSoundTime = nowMs;
+
+            const now = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(300 + Math.random() * 150, now); 
+            gainNode.gain.setValueAtTime(0, now);
+            gainNode.gain.linearRampToValueAtTime(0.3, now + 0.005); 
+            gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.05); 
+            osc.start(now);
+            osc.stop(now + 0.05);
+        }
+
+        let lastGiantHitTime = 0;
+        function playGiantHitSound() {
+            if (audioCtx.state === 'suspended') return;
+            let nowMs = Date.now();
+            if (nowMs - lastGiantHitTime < 100) return;
+            lastGiantHitTime = nowMs;
+
+            const now = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(150, now);
+            osc.frequency.exponentialRampToValueAtTime(40, now + 0.3);
+            gain.gain.setValueAtTime(0.8, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(now);
+            osc.stop(now + 0.3);
+        }
+
+        let lastExplosionTime = 0;
+        function playExplosionSound() {
+            if (audioCtx.state === 'suspended') return;
+            let nowMs = Date.now();
+            if (nowMs - lastExplosionTime < 100) return;
+            lastExplosionTime = nowMs;
+
+            const now = audioCtx.currentTime;
+            const freqs = [4200, 5600, 7100, 8900];
+            freqs.forEach(freq => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'square'; 
+                osc.frequency.setValueAtTime(freq, now);
+                
+                gain.gain.setValueAtTime(0.1, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15 + Math.random() * 0.1); 
+                
+                const filter = audioCtx.createBiquadFilter();
+                filter.type = 'highpass';
+                filter.frequency.value = 3000; 
+                
+                osc.connect(filter);
+                filter.connect(gain);
+                gain.connect(audioCtx.destination);
+                
+                osc.start(now);
+                osc.stop(now + 0.3);
+            });
+        }
+
+        function playWinSound() {
+            if (audioCtx.state === 'suspended') return;
+            const now = audioCtx.currentTime;
+            const freqs = [523.25, 659.25, 783.99, 1046.50]; 
+            freqs.forEach((freq, i) => { 
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine'; 
+                osc.frequency.value = freq;
+                let t = now + i * 0.12;
+                gain.gain.setValueAtTime(0, t);
+                gain.gain.linearRampToValueAtTime(0.4, t + 0.05);
+                gain.gain.exponentialRampToValueAtTime(0.01, t + 1.5);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(t);
+                osc.stop(t + 1.5);
+            });
+        }
+
+        function playLoseSound() {
+            if (audioCtx.state === 'suspended') return;
+            const now = audioCtx.currentTime;
+            const freqs = [440.00, 329.63, 261.63, 220.00]; 
+            freqs.forEach((freq, i) => { 
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.value = freq;
+                let t = now + i * 0.2;
+                gain.gain.setValueAtTime(0, t);
+                gain.gain.linearRampToValueAtTime(0.4, t + 0.1);
+                gain.gain.exponentialRampToValueAtTime(0.01, t + 1.5);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(t);
+                osc.stop(t + 1.5);
+            });
+        }
+        
+        function playTornadoSound() {
+            if (audioCtx.state === 'suspended') return;
+            const now = audioCtx.currentTime;
+            const dur = 3.0; 
+            const bufferSize = audioCtx.sampleRate * dur;
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = Math.random() * 2 - 1; 
+            }
+            const noise = audioCtx.createBufferSource();
+            noise.buffer = buffer;
+
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(100, now);
+            filter.frequency.linearRampToValueAtTime(1000, now + dur/2);
+            filter.frequency.linearRampToValueAtTime(100, now + dur);
+
+            const gain = audioCtx.createGain();
+            gain.gain.setValueAtTime(0, now);
+            gain.gain.linearRampToValueAtTime(0.5, now + 0.2);
+            gain.gain.linearRampToValueAtTime(0.5, now + dur - 0.2);
+            gain.gain.linearRampToValueAtTime(0, now + dur);
+
+            noise.connect(filter);
+            filter.connect(gain);
+            gain.connect(audioCtx.destination);
+            noise.start(now);
+        }
+
+        function playItemSound(item) {
+            if (audioCtx.state === 'suspended') return;
+            const now = audioCtx.currentTime;
+
+            const playOsc = (type, freq1, freq2, dur, vol = 0.3) => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq1, now);
+                if (freq2) osc.frequency.exponentialRampToValueAtTime(freq2, now + dur);
+                gain.gain.setValueAtTime(vol, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + dur);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(now);
+                osc.stop(now + dur);
+            };
+
+            switch(item) {
+                case 'SPEED': playOsc('sine', 400, 1200, 0.3); break;
+                case 'ADD': 
+                    playOsc('square', 300, 600, 0.1); 
+                    setTimeout(() => playOsc('square', 400, 800, 0.1), 120);
+                    break;
+                case 'FREEZE': playOsc('triangle', 1500, 1500, 0.3, 0.2); break; 
+                case 'INV': 
+                    playOsc('sine', 800, null, 0.3, 0.2);
+                    setTimeout(() => playOsc('sine', 1000, null, 0.3, 0.2), 100);
+                    setTimeout(() => playOsc('sine', 1200, null, 0.3, 0.2), 200);
+                    break;
+                case 'GIANT': playOsc('sawtooth', 150, 50, 0.6, 0.3); break;
+                case 'SMALL': playOsc('sine', 1200, 300, 0.3); break;
+                case 'SPIRIT': playOsc('triangle', 800, 200, 0.3); break;
+                case 'DOUBLE': 
+                    playOsc('sine', 600, null, 0.15); 
+                    setTimeout(() => playOsc('sine', 800, null, 0.3), 150);
+                    break;
+                case 'TORNADO': playTornadoSound(); break;
+                case 'ANTI': playTornadoSound(); break; 
+            }
+        }
+
+
+        // --- ゲームメインロジック ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const ITEM_NAMES = {
+            SPEED: '球体加速',
+            ADD: '球体追加',
+            FREEZE: '敵フリーズ',
+            INV: '自軍無敵',
+            GIANT: '巨大化',
+            SMALL: '極小&加速',
+            SPIRIT: 'スピリット',
+            DOUBLE: 'ライン2倍',
+            TORNADO: '竜巻',
+            ANTI: '高気圧'
+        };
+
+        const ui = {
+            redFill: document.getElementById('redFill'),
+            blueFill: document.getElementById('blueFill'),
+            redScoreTxt: document.getElementById('redScoreTxt'),
+            blueScoreTxt: document.getElementById('blueScoreTxt'),
+            redTeamLabel: document.getElementById('redTeamLabel'),
+            blueTeamLabel: document.getElementById('blueTeamLabel'),
+            localItemsLabel: document.getElementById('localItemsLabel'),
+            myPeerId: document.getElementById('myPeerId'),
+            bluePtTxt: document.getElementById('bluePtTxt'),
+            startScreen: document.getElementById('startScreen'),
+            matchStatus: document.getElementById('matchStatus'),
+            gameOverScreen: document.getElementById('gameOverScreen'),
+            winnerText: document.getElementById('winnerText'),
+            winReasonText: document.getElementById('winReasonText'),
+            centerAnnounce: document.getElementById('centerAnnounce'),
+            txtBlueSpeed: document.getElementById('txtBlueSpeed'),
+            logContainer: document.getElementById('logContainer'),
+            buttons: {
+                BLUE: {
+                    SPEED: document.getElementById('btnBlueSpeed'),
+                    ADD: document.getElementById('btnBlueAdd'),
+                    FREEZE: document.getElementById('btnBlueFreeze'),
+                    INV: document.getElementById('btnBlueInv'),
+                    GIANT: document.getElementById('btnBlueGiant'),
+                    SMALL: document.getElementById('btnBlueSmall'),
+                    SPIRIT: document.getElementById('btnBlueSpirit'),
+                    DOUBLE: document.getElementById('btnBlueDouble'),
+                    TORNADO: document.getElementById('btnBlueTornado'),
+                    ANTI: document.getElementById('btnBlueAnti')
+                }
+            },
+            cooldowns: {
+                ADD: document.getElementById('cdBlueAdd'),
+                FREEZE: document.getElementById('cdBlueFreeze'),
+                INV: document.getElementById('cdBlueInv'),
+                GIANT: document.getElementById('cdBlueGiant'),
+                SMALL: document.getElementById('cdBlueSmall'),
+                SPIRIT: document.getElementById('cdBlueSpirit'),
+                DOUBLE: document.getElementById('cdBlueDouble'),
+                TORNADO: document.getElementById('cdBlueTornado'),
+                ANTI: document.getElementById('cdBlueAnti')
+            }
+        };
+
+        const ARENA = { x: 500, y: 500, r: 414 };
+        const BALL_RADIUS = 22;
+        const INITIAL_SPEED = 4.95; 
+        const MAX_SPEED = 18.0; 
+        const WIN_LINES = 200; // 勝利条件を200本に変更
+        const STEAL_COOLDOWN = 150; 
+        const COSTS = { SPEED: 3, ADD: 15, FREEZE: 12, INV: 10, GIANT: 8, SMALL: 10, SPIRIT: 10, DOUBLE: 15, TORNADO: 8, ANTI: 10 };
+        const COOLDOWN_DURATION = 10000; 
+        const PROTECTION_DURATION = 5000; 
+
+        let gameState = 'START';
+        let animationId;
+        let gameFrames = 0;
+        let explosionParticles = [];
+        let nextBallId = 1;
+        let speedRampMultiplier = 1.0;
+        let gameStartAtMs = 0;
+
+        const FIREBASE_CONFIG = window.__firebaseConfig || window.firebaseConfig || {
+            apiKey: '',
+            authDomain: '',
+            projectId: '',
+            storageBucket: '',
+            messagingSenderId: '',
+            appId: ''
+        };
+
+        const APP_ID = window.__appId || window.appId || 'line-or-die';
+
+        const session = {
+            mode: 'LOCAL',
+            localSide: 'BLUE',
+            remoteSide: 'RED',
+            isHost: false,
+            matchId: null,
+            peerId: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+            peer: null,
+            channel: null,
+            peerIdRemote: null,
+            pendingLocalActions: [],
+            lastSnapshotSentAt: 0,
+            peerReady: false,
+            firebaseReady: false,
+            authReady: false,
+            userId: null,
+            db: null,
+            lobbyRef: null,
+            lobbyUnsub: null,
+            connectAttemptPeerId: null
+        };
+
+        function getLocalTeam() {
+            return teams[session.localSide] || teams.BLUE;
+        }
+
+        function setMatchStatus(text) {
+            if (ui.matchStatus) ui.matchStatus.innerText = text || '';
+        }
+
+        function stopOnlineSession() {
+            if (session.channel) {
+                session.channel.close();
+                session.channel = null;
+            }
+            session.matchId = null;
+            session.peerIdRemote = null;
+            session.pendingLocalActions = [];
+            session.lastSnapshotSentAt = 0;
+            session.winnerColor = null;
+            session.reason = null;
+            session.connectAttemptPeerId = null;
+        }
+
+        function updatePeerIdUI() {
+            if (ui.myPeerId) {
+                ui.myPeerId.value = session.peerReady ? session.peerId : '発行中...';
+            }
+        }
+
+        function setConnectionStatus(text) {
+            setMatchStatus(text);
+        }
+
+        function canInitFirebase() {
+            return !!(FIREBASE_CONFIG && FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.projectId);
+        }
+
+        function lobbyCollection() {
+            return session.db.collection(`artifacts/${APP_ID}/public/data/lobby`);
+        }
+
+        async function cleanupLobby() {
+            if (session.lobbyUnsub) {
+                session.lobbyUnsub();
+                session.lobbyUnsub = null;
+            }
+            if (session.lobbyRef) {
+                const ref = session.lobbyRef;
+                session.lobbyRef = null;
+                try {
+                    await ref.delete();
+                } catch (_) {
+                }
+            }
+        }
+
+        async function registerSelfInLobby() {
+            if (!session.db || !session.peerReady || !session.authReady) return;
+            if (session.channel && session.channel.open) return;
+
+            const ref = lobbyCollection().doc(session.peerId);
+            session.lobbyRef = ref;
+            await ref.set({
+                peerId: session.peerId,
+                uid: session.userId,
+                status: 'waiting',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+
+            if (!session.lobbyUnsub) {
+                session.lobbyUnsub = lobbyCollection()
+                    .where('status', '==', 'waiting')
+                    .limit(30)
+                    .onSnapshot(snapshot => {
+                        if (session.channel || session.connectAttemptPeerId || gameState === 'PLAYING') return;
+                        const peers = [];
+                        snapshot.forEach(doc => {
+                            const data = doc.data();
+                            if (data && data.peerId && data.peerId !== session.peerId) {
+                                peers.push(data.peerId);
+                            }
+                        });
+                        if (!peers.length) {
+                            setConnectionStatus('ロビー待機中...');
+                            return;
+                        }
+
+                        const connectable = peers.filter(peerId => session.peerId > peerId);
+                        if (!connectable.length) {
+                            setConnectionStatus('対戦相手を探索中...');
+                            return;
+                        }
+
+                        const targetPeerId = connectable[Math.floor(Math.random() * connectable.length)];
+                        connectToPeerFromLobby(targetPeerId);
+                    }, error => {
+                        setConnectionStatus(`ロビー監視エラー: ${error.message || 'unknown'}`);
+                    });
+            }
+
+            setConnectionStatus('ロビー待機中...');
+        }
+
+        function tryAutoLobby() {
+            if (!session.peerReady || !session.authReady) return;
+            if (session.channel || gameState === 'PLAYING') return;
+            registerSelfInLobby().catch(error => {
+                setConnectionStatus(`ロビー登録エラー: ${error.message || 'unknown'}`);
+            });
+        }
+
+        function initFirebaseLobby() {
+            if (session.firebaseReady) {
+                tryAutoLobby();
+                return;
+            }
+
+            if (!window.firebase) {
+                setConnectionStatus('Firebase SDK を読み込めませんでした');
+                return;
+            }
+
+            if (!canInitFirebase()) {
+                setConnectionStatus('Firebase設定が未入力です');
+                return;
+            }
+
+            if (!firebase.apps.length) {
+                firebase.initializeApp(FIREBASE_CONFIG);
+            }
+
+            const auth = firebase.auth();
+            session.db = firebase.firestore();
+            session.db.settings({ ignoreUndefinedProperties: true });
+            session.firebaseReady = true;
+
+            auth.onAuthStateChanged(user => {
+                if (!user) return;
+                session.authReady = true;
+                session.userId = user.uid;
+                tryAutoLobby();
+            });
+
+            auth.signInAnonymously().catch(error => {
+                setConnectionStatus(`匿名認証エラー: ${error.message || 'unknown'}`);
+            });
+        }
+
+        function initPeerNetworking() {
+            if (session.peer || typeof Peer === 'undefined') {
+                updatePeerIdUI();
+                if (typeof Peer === 'undefined') {
+                    setConnectionStatus('PeerJS を読み込めませんでした');
+                }
+                return;
+            }
+
+            session.peer = new Peer();
+
+            session.peer.on('open', id => {
+                session.peerId = id;
+                session.peerReady = true;
+                updatePeerIdUI();
+                setConnectionStatus(`ID発行完了: ${session.peerId}`);
+                tryAutoLobby();
+            });
+
+            session.peer.on('connection', conn => {
+                if (session.channel && session.channel.open) {
+                    conn.close();
+                    return;
+                }
+                if (gameState === 'PLAYING' && session.mode !== 'ONLINE') {
+                    conn.close();
+                    return;
+                }
+                acceptPeerConnection(conn, true);
+            });
+
+            session.peer.on('error', err => {
+                setConnectionStatus(`Peer エラー: ${err.type || err.message || 'unknown'}`);
+                updatePeerIdUI();
+            });
+        }
+
+        function getMatchIdForPeer(remotePeerId) {
+            return [session.peerId, remotePeerId].sort().join('-');
+        }
+
+        function acceptPeerConnection(conn, isHostSide) {
+            if (session.channel && session.channel !== conn) {
+                session.channel.close();
+            }
+            session.pendingLocalActions = [];
+            session.lastSnapshotSentAt = 0;
+            session.winnerColor = null;
+            session.reason = null;
+            session.connectAttemptPeerId = null;
+            session.channel = conn;
+            session.isHost = isHostSide;
+            session.mode = 'ONLINE';
+            session.matchId = getMatchIdForPeer(conn.peer);
+            session.peerIdRemote = conn.peer;
+            session.localSide = isHostSide ? 'RED' : 'BLUE';
+            session.remoteSide = isHostSide ? 'BLUE' : 'RED';
+
+            conn.on('data', handlePeerMessage);
+            conn.on('close', () => {
+                if (gameState === 'PLAYING' || session.mode === 'ONLINE') {
+                    setConnectionStatus('接続が切断されました');
+                    showStartScreen();
+                }
+            });
+            conn.on('error', err => {
+                setConnectionStatus(`接続エラー: ${err.type || err.message || 'unknown'}`);
+            });
+
+            conn.on('open', () => {
+                const roleText = isHostSide ? 'ホストとして接続しました' : 'ゲストとして接続しました';
+                setConnectionStatus(roleText);
+                cleanupLobby().finally(() => {
+                    startGame('ONLINE', { matchId: session.matchId, isHost: session.isHost, localSide: session.localSide });
+                    sendPeerMessage({ type: 'hello', matchId: session.matchId, peerId: session.peerId, role: isHostSide ? 'HOST' : 'GUEST' });
+                    if (isHostSide) {
+                        sendSnapshot();
+                    }
+                });
+            });
+        }
+
+        function handlePeerMessage(message) {
+            if (!message) return;
+            if (message.matchId && session.matchId && message.matchId !== session.matchId) return;
+
+            if (message.type === 'hello') {
+                if (session.isHost && session.channel && session.channel.open) {
+                    sendSnapshot();
+                }
+                return;
+            }
+
+            if (message.type === 'snapshot' && !session.isHost) {
+                applySnapshot(message.snapshot);
+                return;
+            }
+
+            if (message.type === 'action' && session.isHost) {
+                if (message.side === session.remoteSide) {
+                    buyItem(message.side, message.itemType, true);
+                }
+                return;
+            }
+        }
+
+        function sendPeerMessage(payload) {
+            if (!session.channel || !session.channel.open) return;
+            session.channel.send(payload);
+        }
+
+        function connectToPeerFromLobby(remoteId) {
+            if (!session.peerReady || !remoteId) return;
+            if (session.channel || session.connectAttemptPeerId) return;
+
+            session.connectAttemptPeerId = remoteId;
+            session.mode = 'ONLINE';
+            session.isHost = false;
+            session.localSide = 'BLUE';
+            session.remoteSide = 'RED';
+            session.matchId = getMatchIdForPeer(remoteId);
+            setConnectionStatus('マッチング中... 接続しています');
+            updateControlLabel();
+
+            const conn = session.peer.connect(remoteId, { reliable: true, serialization: 'json' });
+            session.channel = conn;
+            session.peerIdRemote = remoteId;
+
+            conn.on('open', () => {
+                acceptPeerConnection(conn, false);
+            });
+
+            conn.on('error', err => {
+                setConnectionStatus(`接続エラー: ${err.type || err.message || 'unknown'}`);
+                session.channel = null;
+                session.connectAttemptPeerId = null;
+                tryAutoLobby();
+            });
+
+            conn.on('close', () => {
+                if (session.channel === conn) {
+                    session.channel = null;
+                    session.connectAttemptPeerId = null;
+                }
+            });
+        }
+
+        function copyMyPeerId() {
+            if (!session.peerReady || !ui.myPeerId) return;
+            navigator.clipboard?.writeText(ui.myPeerId.value || session.peerId).catch(() => {});
+        }
+
+        function createBallId() {
+            const id = nextBallId;
+            nextBallId += 1;
+            return id;
+        }
+
+        function serializeTeam(team) {
+            return {
+                name: team.name,
+                colorStr: team.colorStr,
+                hexColor: team.hexColor,
+                lineHex: team.lineHex,
+                points: team.points,
+                freezeUntil: team.freezeUntil,
+                invincibleUntil: team.invincibleUntil,
+                giantUntil: team.giantUntil,
+                smallUntil: team.smallUntil,
+                doubleUntil: team.doubleUntil,
+                tornadoUntil: team.tornadoUntil,
+                antiUntil: team.antiUntil,
+                cooldowns: { ...team.cooldowns },
+                isAI: team.isAI,
+                speedBonus: team.speedBonus,
+                hasAcquiredLine: team.hasAcquiredLine,
+                reached100: team.reached100,
+                reached180: team.reached180,
+                balls: team.balls.map(ball => ({
+                    id: ball.id,
+                    x: ball.x,
+                    y: ball.y,
+                    r: ball.r,
+                    vx: ball.vx,
+                    vy: ball.vy,
+                    anchors: ball.anchors.map(anchor => ({ ...anchor })),
+                    isSpirit: ball.isSpirit,
+                    parentId: ball.parentBall ? ball.parentBall.id : null,
+                    expiresAt: ball.expiresAt,
+                    canDie: ball.canDie,
+                    birthTime: ball.birthTime,
+                    speed: ball.speed,
+                    lastColTime: ball.lastColTime,
+                    lastPenaltyTime: ball.lastPenaltyTime,
+                    hasAcquiredLine: ball.hasAcquiredLine
+                }))
+            };
+        }
+
+        function serializeSnapshot() {
+            return {
+                gameFrames,
+                nextBallId,
+                speedRampMultiplier,
+                gameStartAtMs,
+                gameState,
+                winnerColor: session.winnerColor || null,
+                reason: session.reason || null,
+                teams: {
+                    RED: serializeTeam(teams.RED),
+                    BLUE: serializeTeam(teams.BLUE)
+                },
+                explosionParticles: explosionParticles.slice(0, 40).map(p => ({
+                    x: p.x,
+                    y: p.y,
+                    color: p.color,
+                    vx: p.vx,
+                    vy: p.vy,
+                    life: p.life,
+                    decay: p.decay,
+                    size: p.size
+                }))
+            };
+        }
+
+        function recreateTeam(rawTeam) {
+            const team = new Team(rawTeam.name, rawTeam.colorStr, rawTeam.hexColor, rawTeam.lineHex, rawTeam.isAI);
+            team.points = rawTeam.points;
+            team.freezeUntil = rawTeam.freezeUntil;
+            team.invincibleUntil = rawTeam.invincibleUntil;
+            team.giantUntil = rawTeam.giantUntil;
+            team.smallUntil = rawTeam.smallUntil;
+            team.doubleUntil = rawTeam.doubleUntil;
+            team.tornadoUntil = rawTeam.tornadoUntil;
+            team.antiUntil = rawTeam.antiUntil;
+            team.cooldowns = { ...rawTeam.cooldowns };
+            team.speedBonus = rawTeam.speedBonus;
+            team.hasAcquiredLine = rawTeam.hasAcquiredLine;
+            team.reached100 = rawTeam.reached100;
+            team.reached180 = rawTeam.reached180;
+
+            const ballLookup = new Map();
+            team.balls = rawTeam.balls.map(rawBall => {
+                const ball = new Ball(team, rawBall.x, rawBall.y, rawBall.canDie, rawBall.isSpirit, null, rawBall.id);
+                ball.r = rawBall.r;
+                ball.vx = rawBall.vx;
+                ball.vy = rawBall.vy;
+                ball.anchors = rawBall.anchors.map(anchor => ({ ...anchor }));
+                ball.expiresAt = rawBall.expiresAt;
+                ball.birthTime = rawBall.birthTime;
+                ball.speed = rawBall.speed;
+                ball.lastColTime = rawBall.lastColTime;
+                ball.lastPenaltyTime = rawBall.lastPenaltyTime;
+                ball.hasAcquiredLine = rawBall.hasAcquiredLine;
+                ballLookup.set(rawBall.id, ball);
+                return ball;
+            });
+
+            rawTeam.balls.forEach(rawBall => {
+                const ball = ballLookup.get(rawBall.id);
+                ball.parentBall = rawBall.parentId ? ballLookup.get(rawBall.parentId) || null : null;
+            });
+
+            return team;
+        }
+
+        function applySnapshot(snapshot) {
+            gameFrames = snapshot.gameFrames;
+            nextBallId = snapshot.nextBallId || nextBallId;
+            speedRampMultiplier = snapshot.speedRampMultiplier || 1.0;
+            gameStartAtMs = snapshot.gameStartAtMs || Date.now();
+            teams = {
+                RED: recreateTeam(snapshot.teams.RED),
+                BLUE: recreateTeam(snapshot.teams.BLUE)
+            };
+            explosionParticles = (snapshot.explosionParticles || []).map(p => Object.assign(new Particle(p.x, p.y, p.color), {
+                vx: p.vx,
+                vy: p.vy,
+                life: p.life,
+                decay: p.decay,
+                size: p.size
+            }));
+            if (snapshot.gameState === 'GAMEOVER') {
+                endGame(snapshot.winnerColor, snapshot.reason, true);
+            }
+        }
+
+        function sendSnapshot() {
+            if (session.mode !== 'ONLINE' || !session.channel || !session.isHost || gameState !== 'PLAYING') return;
+            const now = Date.now();
+            if (now - session.lastSnapshotSentAt < 80) return;
+            session.lastSnapshotSentAt = now;
+            sendPeerMessage({
+                type: 'snapshot',
+                matchId: session.matchId,
+                snapshot: serializeSnapshot()
+            });
+        }
+
+        function addLog(msg, colorClass) {
+            const logItem = document.createElement('div');
+            logItem.className = `px-2 py-1.5 rounded bg-black/40 border-l-2 ${colorClass} text-white log-item`;
+            logItem.innerHTML = msg;
+            ui.logContainer.appendChild(logItem);
+            ui.logContainer.scrollTop = ui.logContainer.scrollHeight;
+        }
+
+        class Team {
+            constructor(name, colorStr, hexColor, lineHex, isAI = false) {
+                this.name = name;
+                this.colorStr = colorStr;
+                this.hexColor = hexColor;
+                this.lineHex = lineHex;
+                this.balls = [];
+                this.points = 0;
+                
+                this.freezeUntil = 0;
+                this.invincibleUntil = 0;
+                this.giantUntil = 0; 
+                this.smallUntil = 0; 
+                this.doubleUntil = 0; 
+                this.tornadoUntil = 0; 
+                this.antiUntil = 0; 
+                
+                this.cooldowns = { ADD: 0, FREEZE: 0, INV: 0, GIANT: 0, SMALL: 0, SPIRIT: 0, DOUBLE: 0, TORNADO: 0, ANTI: 0 };
+
+                this.isAI = isAI; 
+                this.speedBonus = 0;
+                this.aiTarget = null;
+                this.hasAcquiredLine = false; 
+
+                this.reached100 = false;
+                this.reached180 = false;
+            }
+
+            getTotalLines() {
+                return this.balls.reduce((sum, ball) => sum + ball.anchors.length, 0);
+            }
+            
+            isFrozen() { return Date.now() < this.freezeUntil; }
+            isInvincible() { return Date.now() < this.invincibleUntil; }
+            isGiant() { return Date.now() < this.giantUntil; }
+            isSmall() { return Date.now() < this.smallUntil; }
+            isDouble() { return Date.now() < this.doubleUntil; }
+            isTornado() { return Date.now() < this.tornadoUntil; }
+            isAnti() { return Date.now() < this.antiUntil; }
+            isMaxSpeed() { return (INITIAL_SPEED + this.speedBonus) >= MAX_SPEED; }
+        }
+
+        class Ball {
+            constructor(team, x, y, isInitial, isSpirit = false, parentBall = null, id = null) {
+                this.team = team;
+                this.x = x;
+                this.y = y;
+                this.r = BALL_RADIUS;
+                this.vx = 0;
+                this.vy = 0;
+                this.anchors = [];
+                this.id = id || createBallId();
+                
+                this.isSpirit = isSpirit;
+                this.parentBall = parentBall; 
+                this.expiresAt = isSpirit ? Date.now() + 3000 : Infinity; 
+
+                this.canDie = isInitial;
+                this.birthTime = Date.now(); 
+                this.speed = Math.min(INITIAL_SPEED + team.speedBonus, MAX_SPEED); 
+                this.lastColTime = 0;
+                this.lastPenaltyTime = 0;
+                this.hasAcquiredLine = false;
+            }
+
+            getCurrentRadius() {
+                let baseR = this.isSpirit ? this.r * 0.4 : this.r;
+                if (this.team.isGiant()) return baseR * 2.0;
+                if (this.team.isSmall()) return baseR * 0.5;
+                return baseR;
+            }
+        }
+
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * 5 + 2;
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                this.life = 1.0;
+                this.decay = Math.random() * 0.02 + 0.02;
+                this.size = Math.random() * 4 + 2;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life -= this.decay;
+            }
+            draw(ctx) {
+                ctx.globalAlpha = Math.max(0, this.life);
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1.0;
+            }
+        }
+
+        let teams = { RED: null, BLUE: null };
+
+        function getTeamBaseSpeed(team) {
+            const cappedBase = Math.min(INITIAL_SPEED + team.speedBonus, MAX_SPEED);
+            return cappedBase * speedRampMultiplier;
+        }
+
+        function refreshBallSpeed(ball) {
+            ball.speed = getTeamBaseSpeed(ball.team);
+        }
+
+        // --- ユーティリティ ---
+        function dist2(v, w) { return Math.pow(v.x - w.x, 2) + Math.pow(v.y - w.y, 2); }
+        function distToSegmentSquared(p, v, w) {
+            let l2 = dist2(v, w);
+            if (l2 === 0) return dist2(p, v);
+            let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+            t = Math.max(0, Math.min(1, t));
+            return dist2(p, { x: v.x + t * (w.x - v.x), y: v.y + t * (w.y - v.y) });
+        }
+        
+        function showAnnounce(text, colorClass) {
+            ui.centerAnnounce.className = `absolute pointer-events-none transition-opacity duration-300 text-2xl md:text-4xl font-black tracking-widest drop-shadow-[0_0_10px_rgba(0,0,0,0.8)] z-50 ${colorClass}`;
+            ui.centerAnnounce.innerText = text;
+            ui.centerAnnounce.style.opacity = 1;
+            setTimeout(() => { ui.centerAnnounce.style.opacity = 0; }, 1500);
+        }
+
+        function createExplosion(x, y, color) {
+            playExplosionSound(); 
+            for (let i = 0; i < 20; i++) {
+                explosionParticles.push(new Particle(x, y, color));
+            }
+        }
+
+        // --- 初期化と生成 ---
+        function showStartScreen() {
+            if (animationId) cancelAnimationFrame(animationId);
+            stopOnlineSession();
+            session.mode = 'LOCAL';
+            session.localSide = 'BLUE';
+            session.remoteSide = 'RED';
+            session.isHost = false;
+            ui.gameOverScreen.classList.add('hidden');
+            ui.gameOverScreen.classList.remove('flex');
+            ui.startScreen.classList.remove('hidden');
+            ui.startScreen.classList.add('flex');
+            setMatchStatus('');
+            updateControlLabel();
+            gameState = 'START';
+            tryAutoLobby();
+        }
+
+        function updateControlLabel() {
+            const side = session.mode === 'ONLINE' ? session.localSide : 'BLUE';
+            if (ui.localItemsLabel) {
+                if (session.mode === 'ONLINE') {
+                    ui.localItemsLabel.innerText = side === 'RED' ? 'YOUR ITEMS (RED)' : 'YOUR ITEMS (BLUE)';
+                    ui.localItemsLabel.className = side === 'RED'
+                        ? 'text-[#ff003c] font-black tracking-widest text-sm md:text-lg drop-shadow-[0_0_8px_rgba(255,0,60,0.8)]'
+                        : 'text-[#0066ff] font-black tracking-widest text-sm md:text-lg drop-shadow-[0_0_8px_rgba(0,102,255,0.8)]';
+                } else {
+                    ui.localItemsLabel.innerText = 'YOUR ITEMS';
+                    ui.localItemsLabel.className = 'text-[#0066ff] font-black tracking-widest text-sm md:text-lg drop-shadow-[0_0_8px_rgba(0,102,255,0.8)]';
+                }
+            }
+            if (ui.redTeamLabel && ui.blueTeamLabel) {
+                if (session.mode === 'ONLINE') {
+                    ui.redTeamLabel.innerText = side === 'RED' ? 'RED (YOU)' : 'RED (OPPONENT)';
+                    ui.blueTeamLabel.innerText = side === 'BLUE' ? 'BLUE (YOU)' : 'BLUE (OPPONENT)';
+                } else {
+                    ui.redTeamLabel.innerText = 'RED (AI)';
+                    ui.blueTeamLabel.innerText = 'BLUE (YOU)';
+                }
+            }
+            const title = ui.startScreen.querySelector('h1');
+            if (title) {
+                if (session.mode === 'ONLINE') {
+                    title.querySelectorAll('span')[0].innerText = session.localSide === 'RED' ? 'RED (YOU)' : 'RED (AI)';
+                    title.querySelectorAll('span')[2].innerText = session.localSide === 'BLUE' ? 'BLUE (YOU)' : 'BLUE (AI)';
+                } else {
+                    title.querySelectorAll('span')[0].innerText = 'RED (AI)';
+                    title.querySelectorAll('span')[2].innerText = 'BLUE (YOU)';
+                }
+            }
+        }
+
+        function startGame(mode = 'LOCAL', matchInfo = null) {
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+
+            if (mode === 'ONLINE' && !matchInfo) {
+                if (!session.channel || !session.channel.open) {
+                    session.mode = 'ONLINE';
+                    session.localSide = 'BLUE';
+                    session.remoteSide = 'RED';
+                    updateControlLabel();
+                    setConnectionStatus('ロビーで対戦相手を検索中...');
+                    tryAutoLobby();
+                    return;
+                }
+                matchInfo = {
+                    matchId: session.matchId,
+                    isHost: session.isHost,
+                    localSide: session.localSide
+                };
+            }
+
+            if (mode === 'LOCAL') {
+                cleanupLobby();
+            }
+
+            session.mode = mode;
+            session.isHost = !!(matchInfo && matchInfo.isHost);
+            session.matchId = matchInfo ? matchInfo.matchId : null;
+            session.localSide = matchInfo && matchInfo.localSide ? matchInfo.localSide : 'BLUE';
+            session.remoteSide = session.localSide === 'BLUE' ? 'RED' : 'BLUE';
+            session.winnerColor = null;
+            session.reason = null;
+
+            ui.startScreen.classList.add('hidden');
+            ui.startScreen.classList.remove('flex');
+            ui.gameOverScreen.classList.add('hidden');
+            ui.gameOverScreen.classList.remove('flex');
+            setMatchStatus('');
+            
+            while (ui.logContainer.children.length > 1) {
+                ui.logContainer.removeChild(ui.logContainer.lastChild);
+            }
+
+            teams.RED = new Team('RED', 'text-[#ff003c]', '#ff003c', 'rgba(255, 0, 60, 0.6)', mode === 'LOCAL');
+            teams.BLUE = new Team('BLUE', 'text-[#0066ff]', '#0066ff', 'rgba(0, 102, 255, 0.6)', false);
+
+            if (mode === 'ONLINE') {
+                teams.RED.isAI = false;
+                teams.BLUE.isAI = false;
+            }
+
+            addBallToTeam(teams.RED, 250, 500, true);
+            addBallToTeam(teams.BLUE, 750, 500, true);
+
+            ui.txtBlueSpeed.innerHTML = '球体加速<br>(+5%)';
+            updateControlLabel();
+
+            gameFrames = 0;
+            explosionParticles = [];
+            nextBallId = Math.max(nextBallId, 3);
+            speedRampMultiplier = 1.0;
+            gameStartAtMs = Date.now();
+            aiCooldown = Date.now() + 2000;
+            gameState = 'PLAYING';
+            updateButtonsUI();
+            
+            if (animationId) cancelAnimationFrame(animationId);
+            gameLoop();
+        }
+
+        function addBallToTeam(team, startX, startY, isInitial = false, isSpirit = false, parentBall = null) {
+            let ball = new Ball(team, startX, startY, isInitial, isSpirit, parentBall);
+            refreshBallSpeed(ball);
+            let angle;
+
+            if (isSpirit && parentBall) {
+                let parentAngle = Math.atan2(parentBall.vy, parentBall.vx);
+                let offset = (Math.random() * (Math.PI * 4 / 3)) + (Math.PI / 3);
+                angle = parentAngle + offset;
+                
+                let spawnDist = parentBall.getCurrentRadius() + ball.getCurrentRadius() + 1;
+                ball.x = parentBall.x + Math.cos(angle) * spawnDist;
+                ball.y = parentBall.y + Math.sin(angle) * spawnDist;
+            } else {
+                angle = (Math.random() * Math.PI * 2);
+            }
+            
+            ball.vx = Math.cos(angle) * ball.speed;
+            ball.vy = Math.sin(angle) * ball.speed;
+            team.balls.push(ball);
+            return ball;
+        }
+
+        window.buyLocalItem = function(itemType) {
+            if (gameState !== 'PLAYING') return;
+            if (session.mode !== 'ONLINE') {
+                buyItem('BLUE', itemType);
+                return;
+            }
+
+            if (session.isHost) {
+                buyItem(session.localSide, itemType);
+                sendSnapshot();
+            } else if (session.channel && session.matchId) {
+                sendPeerMessage({
+                    type: 'action',
+                    matchId: session.matchId,
+                    peerId: session.peerId,
+                    side: session.localSide,
+                    itemType
+                });
+            }
+        };
+
+        // --- アイテムシステム ---
+        window.buyItem = function(teamName, itemType, fromNetwork = false) {
+            if (gameState !== 'PLAYING') return;
+            let team = teams[teamName];
+            let enemy = teamName === 'RED' ? teams.BLUE : teams.RED;
+            let cost = COSTS[itemType];
+            let now = Date.now();
+
+            if (itemType !== 'SPEED' && team.cooldowns[itemType] > now) return;
+
+            if (team.points >= cost) {
+                
+                // フリーズは敵が無敵ならブロック
+                if (itemType === 'FREEZE' && enemy.isInvincible()) {
+                    team.points -= cost;
+                    team.cooldowns[itemType] = now + COOLDOWN_DURATION;
+                    showAnnounce(`BLOCKED!`, 'text-yellow-400');
+                    let borderColor = enemy.name === 'RED' ? 'border-red-500 text-red-200' : 'border-blue-500 text-blue-200';
+                    addLog(`[${enemy.name}] BLOCKED FREEZE!`, borderColor);
+                    updateButtonsUI();
+                    return;
+                }
+
+                team.points -= cost;
+                
+                if (itemType !== 'SPEED') {
+                    team.cooldowns[itemType] = now + COOLDOWN_DURATION;
+                }
+
+                playItemSound(itemType); 
+
+                let borderColor = teamName === 'RED' ? 'border-red-500 text-red-200' : 'border-blue-500 text-blue-200';
+                addLog(`[${teamName}] ${ITEM_NAMES[itemType]}`, borderColor);
+
+                switch(itemType) {
+                    case 'SPEED':
+                        if (!team.isMaxSpeed()) {
+                            team.speedBonus += (INITIAL_SPEED * 0.05);
+                            if (INITIAL_SPEED + team.speedBonus > MAX_SPEED) {
+                                team.speedBonus = MAX_SPEED - INITIAL_SPEED; 
+                            }
+                            team.balls.forEach(b => {
+                                refreshBallSpeed(b);
+                                normalizeSpeed(b);
+                            });
+                            showAnnounce(`${teamName} SPEED UP!`, team.colorStr);
+                            
+                            if (teamName === 'BLUE' && team.isMaxSpeed()) {
+                                ui.txtBlueSpeed.innerHTML = '速度MAX';
+                            }
+                        }
+                        break;
+                    case 'ADD':
+                        addBallToTeam(team, ARENA.x + (Math.random()*40-20), ARENA.y + (Math.random()*40-20), false);
+                        showAnnounce(`${teamName} EXTRA BALL!`, team.colorStr);
+                        break;
+                    case 'FREEZE':
+                        enemy.freezeUntil = Date.now() + 3000;
+                        showAnnounce(`${enemy.name} FROZEN!`, 'text-blue-200');
+                        break;
+                    case 'INV':
+                        team.invincibleUntil = Date.now() + 3000;
+                        showAnnounce(`${teamName} INVINCIBLE!`, 'text-yellow-400');
+                        break;
+                    case 'GIANT':
+                        team.smallUntil = 0;
+                        team.giantUntil = Date.now() + 5000;
+                        showAnnounce(`${teamName} GIANT!`, 'text-orange-400');
+                        break;
+                    case 'SMALL':
+                        team.giantUntil = 0;
+                        team.smallUntil = Date.now() + 5000;
+                        showAnnounce(`${teamName} SMALL & FAST!`, 'text-green-400');
+                        break;
+                    case 'SPIRIT':
+                        let parents = team.balls.filter(b => !b.isSpirit);
+                        parents.forEach(p => {
+                            addBallToTeam(team, p.x, p.y, false, true, p);
+                        });
+                        showAnnounce(`${teamName} SPIRIT!`, 'text-purple-400');
+                        break;
+                    case 'DOUBLE':
+                        team.doubleUntil = Date.now() + 3000;
+                        showAnnounce(`${teamName} 2x LINES!`, 'text-cyan-400');
+                        break;
+                    case 'TORNADO':
+                        team.tornadoUntil = Date.now() + 3000;
+                        showAnnounce(`${teamName} TORNADO!`, 'text-teal-300');
+                        break;
+                    case 'ANTI':
+                        team.antiUntil = Date.now() + 3000;
+                        showAnnounce(`${teamName} HIGH PRESSURE!`, 'text-sky-300');
+                        break;
+                }
+                updateButtonsUI();
+
+                if (fromNetwork && session.mode === 'ONLINE' && session.isHost) {
+                    sendSnapshot();
+                }
+            }
+        };
+
+        // --- AIロジック (最強設定) ---
+        let aiCooldown = 0;
+
+        function updateAI() {
+            if (session.mode !== 'LOCAL') return;
+            let team = teams.RED;
+            if (!team.isAI) return;
+            
+            let now = Date.now();
+            if (now < aiCooldown) return;
+
+            let enemy = teams.BLUE;
+            let pts = team.points;
+
+            let scores = {};
+            const cd = team.cooldowns;
+
+            scores.SPEED = (team.isMaxSpeed() || cd.SPEED > now) ? -1 : 10;
+            scores.ADD = (team.balls.filter(b => !b.isSpirit).length >= 5 || cd.ADD > now) ? -1 : 30;
+            scores.FREEZE = (enemy.isInvincible() || enemy.isFrozen() || cd.FREEZE > now) ? -1 : 40 + enemy.balls.filter(b => !b.isSpirit).length * 10;
+            scores.INV = (team.isInvincible() || cd.INV > now) ? -1 : 20;
+            scores.GIANT = (enemy.isInvincible() || team.isGiant() || cd.GIANT > now) ? -1 : 35 + enemy.getTotalLines() / 4;
+            scores.SMALL = (team.isSmall() || cd.SMALL > now) ? -1 : 25;
+            scores.SPIRIT = (enemy.isInvincible() || cd.SPIRIT > now) ? -1 : 30 + team.balls.filter(b => !b.isSpirit).length * 10;
+            scores.DOUBLE = (team.isDouble() || cd.DOUBLE > now) ? -1 : 35;
+            scores.TORNADO = (enemy.isInvincible() || enemy.isAnti() || team.isTornado() || cd.TORNADO > now) ? -1 : 35;
+            scores.ANTI = (team.isAnti() || cd.ANTI > now) ? -1 : 20 + (enemy.isTornado() ? 60 : 0);
+
+            // 敵の致命的な攻撃に対する超反応防御
+            let isEnemyDangerous = enemy.isGiant() || enemy.isTornado() || enemy.balls.some(b => b.isSpirit);
+            if (isEnemyDangerous) {
+                if (scores.INV !== -1) scores.INV += 200;
+                if (scores.ANTI !== -1) scores.ANTI += 100;
+            }
+            
+            // ピンチ時の延命策
+            if (team.getTotalLines() < 40) {
+                if (scores.INV !== -1) scores.INV += 150;
+                if (scores.ADD !== -1) scores.ADD += 150;
+                if (scores.SMALL !== -1) scores.SMALL += 50;
+                if (scores.ANTI !== -1) scores.ANTI += 50;
+            }
+
+            // 攻撃コンボ（自分がダブルなら稼ぐ、敵がフリーズならトドメ）
+            if (team.isDouble()) {
+                if (scores.SMALL !== -1) scores.SMALL += 80;
+                if (scores.ANTI !== -1) scores.ANTI += 80;
+                if (scores.SPEED !== -1) scores.SPEED += 40;
+            }
+            if (enemy.isFrozen()) {
+                if (scores.GIANT !== -1) scores.GIANT += 100;
+                if (scores.TORNADO !== -1) scores.TORNADO += 80;
+            }
+
+            // 最もスコアが高いアイテムを見つける
+            let bestItem = null;
+            let maxScore = -1;
+            for (let item in scores) {
+                if (scores[item] > maxScore) {
+                    maxScore = scores[item];
+                    bestItem = item;
+                }
+            }
+
+            if (!bestItem) {
+                aiCooldown = now + 100; 
+                return;
+            }
+
+            // ポイントが足りれば即座に買う
+            if (pts >= COSTS[bestItem]) {
+                buyItem(team.name, bestItem);
+                // 人間では不可能なレベルの超反応ループ（連続使用可能）
+                aiCooldown = now + 100 + Math.random() * 200; 
+            } else {
+                // ポイントが足りない場合は超スピードで監視を続ける
+                aiCooldown = now + 50;
+            }
+        }
+
+        // --- ロジック ---
+        function normalizeSpeed(ball) {
+            let targetSpeed = ball.team.isSmall() ? ball.speed * 2.0 : ball.speed;
+            
+            let currentSpeed = Math.sqrt(ball.vx**2 + ball.vy**2);
+            if(currentSpeed > 0) {
+                ball.vx = (ball.vx / currentSpeed) * targetSpeed;
+                ball.vy = (ball.vy / currentSpeed) * targetSpeed;
+            }
+        }
+
+        function checkWallCollision(ball) {
+            let dx = ball.x - ARENA.x;
+            let dy = ball.y - ARENA.y;
+            let dist = Math.sqrt(dx * dx + dy * dy);
+            let r = ball.getCurrentRadius();
+
+            if (dist + r > ARENA.r) {
+                let overlap = (dist + r) - ARENA.r;
+                let nx = dx / (dist || 1);
+                let ny = dy / (dist || 1);
+                ball.x -= nx * overlap;
+                ball.y -= ny * overlap;
+
+                let dot = ball.vx * nx + ball.vy * ny;
+                if (dot > 0) {
+                    ball.vx -= 2 * dot * nx;
+                    ball.vy -= 2 * dot * ny;
+
+                    let targetSpeed = ball.team.isSmall() ? ball.speed * 2.0 : ball.speed;
+                    let angle = Math.atan2(ball.vy, ball.vx);
+                    angle += (Math.random() - 0.5) * 0.4;
+                    ball.vx = Math.cos(angle) * targetSpeed;
+                    ball.vy = Math.sin(angle) * targetSpeed;
+
+                    playHitSound(); 
+
+                    if (!ball.isSpirit) {
+                        ball.team.points += 1; 
+                        updateButtonsUI();
+
+                        if (ball.anchors.length < WIN_LINES + 50) {
+                            ball.anchors.push({ x: ARENA.x + nx * ARENA.r, y: ARENA.y + ny * ARENA.r, lastStolen: 0 });
+                            
+                            if (ball.team.isDouble() && ball.anchors.length < WIN_LINES + 50) {
+                                ball.anchors.push({ x: ARENA.x + nx * ARENA.r, y: ARENA.y + ny * ARENA.r, lastStolen: 0 });
+                            }
+
+                            ball.hasAcquiredLine = true;
+                            ball.team.hasAcquiredLine = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        function checkBallCollision(b1, b2) {
+            if (b1.parentBall === b2 || b2.parentBall === b1) return;
+            if (b1.isSpirit && b2.isSpirit && b1.parentBall && b1.parentBall === b2.parentBall) return;
+
+            let dx = b2.x - b1.x;
+            let dy = b2.y - b1.y;
+            let dist = Math.sqrt(dx * dx + dy * dy);
+            let r1 = b1.getCurrentRadius();
+            let r2 = b2.getCurrentRadius();
+
+            if (dist < r1 + r2) {
+                let now = Date.now();
+                
+                playHitSound();
+
+                if (now - b1.lastColTime > 100 && now - b2.lastColTime > 100) {
+                    if (!b1.isSpirit) b1.team.points += 1;
+                    if (!b2.isSpirit) b2.team.points += 1;
+                    b1.lastColTime = now;
+                    b2.lastColTime = now;
+                    updateButtonsUI();
+                }
+
+                if (b1.team !== b2.team) {
+                    if (b1.team.isGiant() && !b1.isSpirit && !b2.team.isGiant() && !b2.team.isInvincible() && now - b2.lastPenaltyTime > 500) {
+                        let currentLines = b2.anchors.length;
+                        if (currentLines > 1) { 
+                            let loseCount = Math.floor(currentLines * 0.8); 
+                            if (currentLines - loseCount < 1) loseCount = currentLines - 1;
+                            
+                            if (loseCount > 0) {
+                                let stolenAnchors = b2.anchors.splice(0, loseCount);
+                                b2.lastPenaltyTime = now;
+                                
+                                stolenAnchors.forEach(a => {
+                                    a.lastStolen = now;
+                                    b1.anchors.push(a);
+                                    if (b1.team.isDouble() && b1.anchors.length < WIN_LINES + 50) {
+                                        b1.anchors.push({ x: a.x, y: a.y, lastStolen: now });
+                                    }
+                                });
+                                b1.hasAcquiredLine = true;
+                                b1.team.hasAcquiredLine = true;
+
+                                playGiantHitSound(); 
+                                createExplosion(b2.x, b2.y, b2.team.hexColor); 
+                            }
+                        }
+                    }
+                    if (b2.team.isGiant() && !b2.isSpirit && !b1.team.isGiant() && !b1.team.isInvincible() && now - b1.lastPenaltyTime > 500) {
+                        let currentLines = b1.anchors.length;
+                        if (currentLines > 1) {
+                            let loseCount = Math.floor(currentLines * 0.8); 
+                            if (currentLines - loseCount < 1) loseCount = currentLines - 1;
+
+                            if (loseCount > 0) {
+                                let stolenAnchors = b1.anchors.splice(0, loseCount);
+                                b1.lastPenaltyTime = now;
+
+                                stolenAnchors.forEach(a => {
+                                    a.lastStolen = now;
+                                    b2.anchors.push(a);
+                                    if (b2.team.isDouble() && b2.anchors.length < WIN_LINES + 50) {
+                                        b2.anchors.push({ x: a.x, y: a.y, lastStolen: now });
+                                    }
+                                });
+                                b2.hasAcquiredLine = true;
+                                b2.team.hasAcquiredLine = true;
+
+                                playGiantHitSound(); 
+                                createExplosion(b1.x, b1.y, b1.team.hexColor);
+                            }
+                        }
+                    }
+                }
+
+                let overlap = (r1 + r2) - dist;
+                let nx = dx / (dist || 1);
+                let ny = dy / (dist || 1);
+
+                let b1Frozen = b1.team.isFrozen();
+                let b2Frozen = b2.team.isFrozen();
+
+                if (b1Frozen && b2Frozen) {
+                    b1.x -= nx * (overlap / 2);
+                    b1.y -= ny * (overlap / 2);
+                    b2.x += nx * (overlap / 2);
+                    b2.y += ny * (overlap / 2);
+                } else if (b1Frozen && !b2Frozen) {
+                    b2.x += nx * overlap;
+                    b2.y += ny * overlap;
+                    let u2 = b2.vx * nx + b2.vy * ny;
+                    if (u2 < 0) {
+                        b2.vx -= 2 * u2 * nx;
+                        b2.vy -= 2 * u2 * ny;
+                    }
+                } else if (!b1Frozen && b2Frozen) {
+                    b1.x -= nx * overlap;
+                    b1.y -= ny * overlap;
+                    let u1 = b1.vx * nx + b1.vy * ny;
+                    if (u1 > 0) {
+                        b1.vx -= 2 * u1 * nx;
+                        b1.vy -= 2 * u1 * ny;
+                    }
+                } else {
+                    b1.x -= nx * (overlap / 2);
+                    b1.y -= ny * (overlap / 2);
+                    b2.x += nx * (overlap / 2);
+                    b2.y += ny * (overlap / 2);
+
+                    let u1 = b1.vx * nx + b1.vy * ny;
+                    let u2 = b2.vx * nx + b2.vy * ny;
+                    let diff = u2 - u1;
+                    
+                    b1.vx += diff * nx;
+                    b1.vy += diff * ny;
+                    b2.vx -= diff * nx;
+                    b2.vy -= diff * ny;
+                }
+
+                normalizeSpeed(b1);
+                normalizeSpeed(b2);
+            }
+        }
+
+        function processSteals(thiefBall, victimBall) {
+            if (thiefBall.team.isFrozen()) return;
+            if (victimBall.team.isInvincible()) return;
+
+            let now = Date.now();
+            let thiefRadius = thiefBall.getCurrentRadius();
+
+            for (let i = victimBall.anchors.length - 1; i >= 0; i--) {
+                let anchor = victimBall.anchors[i];
+                if (now - anchor.lastStolen < STEAL_COOLDOWN) continue;
+
+                let distSq = distToSegmentSquared(thiefBall, victimBall, anchor);
+                
+                if (distSq < thiefRadius * thiefRadius) {
+                    anchor.lastStolen = now;
+                    victimBall.anchors.splice(i, 1); 
+                    
+                    let targetBall = thiefBall.isSpirit ? thiefBall.parentBall : thiefBall;
+
+                    if (targetBall && targetBall.team.balls.includes(targetBall)) {
+                        targetBall.anchors.push(anchor); 
+                        
+                        if (targetBall.team.isDouble() && targetBall.anchors.length < WIN_LINES + 50) {
+                            targetBall.anchors.push({ x: anchor.x, y: anchor.y, lastStolen: now });
+                        }
+                        
+                        targetBall.hasAcquiredLine = true;
+                        targetBall.team.hasAcquiredLine = true;
+                    }
+                }
+            }
+        }
+
+        function checkBallElimination(team) {
+            let now = Date.now();
+            for (let i = team.balls.length - 1; i >= 0; i--) {
+                let ball = team.balls[i];
+                
+                if (ball.isSpirit) {
+                    if (now > ball.expiresAt) {
+                        createExplosion(ball.x, ball.y, team.hexColor);
+                        team.balls.splice(i, 1);
+                    }
+                } else {
+                    if (now - ball.birthTime > PROTECTION_DURATION && ball.anchors.length === 0) {
+                        createExplosion(ball.x, ball.y, team.hexColor);
+                        team.balls.splice(i, 1);
+                    }
+                }
+            }
+        }
+
+        function checkMilestones() {
+            let redLines = teams.RED.getTotalLines();
+            let blueLines = teams.BLUE.getTotalLines();
+
+            if (redLines >= 100 && !teams.RED.reached100) {
+                teams.RED.reached100 = true;
+                addLog(`🔥 REDが 100本到達！`, 'border-red-500 text-red-300');
+            }
+            if (redLines >= 180 && !teams.RED.reached180) {
+                teams.RED.reached180 = true;
+                addLog(`💥 REDが 180本到達！`, 'border-red-500 font-bold text-red-400');
+            }
+
+            if (blueLines >= 100 && !teams.BLUE.reached100) {
+                teams.BLUE.reached100 = true;
+                addLog(`🔥 BLUEが 100本到達！`, 'border-blue-500 text-blue-300');
+            }
+            if (blueLines >= 180 && !teams.BLUE.reached180) {
+                teams.BLUE.reached180 = true;
+                addLog(`💥 BLUEが 180本到達！`, 'border-blue-500 font-bold text-blue-400');
+            }
+        }
+
+        function update() {
+            if (gameState !== 'PLAYING') return;
+            if (session.mode === 'ONLINE' && !session.isHost) return;
+            gameFrames++;
+
+            const elapsedSeconds = Math.floor((Date.now() - gameStartAtMs) / 1000);
+            speedRampMultiplier = 1.0 + Math.max(0, elapsedSeconds) * 0.01;
+
+            if (gameFrames % 60 === 0) {
+                teams.RED.points += 1;
+                teams.BLUE.points += 1;
+                updateButtonsUI();
+            }
+
+            updateAI();
+
+            let allBalls = [...teams.RED.balls, ...teams.BLUE.balls];
+
+            allBalls.forEach(ball => {
+                let enemyTeam = ball.team.name === 'RED' ? teams.BLUE : teams.RED;
+                refreshBallSpeed(ball);
+
+                if (!ball.team.isFrozen()) {
+                    let dx = ARENA.x - ball.x;
+                    let dy = ARENA.y - ball.y;
+                    let dist = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (dist > 0.1) {
+                        if (enemyTeam.isTornado() && !ball.team.isInvincible()) {
+                            let pull = 1.0;
+                            let swirl = 1.0; 
+                            let nx = -dx / dist; 
+                            let ny = -dy / dist;
+                            
+                            let tx = (enemyTeam.name === 'RED') ? -ny : ny;
+                            let ty = (enemyTeam.name === 'RED') ? nx : -nx;
+                            
+                            ball.vx += (dx / dist) * pull + tx * swirl;
+                            ball.vy += (dy / dist) * pull + ty * swirl;
+                        }
+                        
+                        if (ball.team.isAnti()) {
+                            let nx = -dx / dist; 
+                            let ny = -dy / dist;
+                            
+                            let tx = (ball.team.name === 'RED') ? -ny : ny;
+                            let ty = (ball.team.name === 'RED') ? nx : -nx;
+
+                            let targetDist = ARENA.r - ball.getCurrentRadius() - 3; 
+                            let diff = targetDist - dist;
+                            
+                            ball.vx += tx * 1.5 + nx * (diff * 0.2);
+                            ball.vy += ty * 1.5 + ny * (diff * 0.2);
+                        }
+                    }
+
+                    ball.x += ball.vx;
+                    ball.y += ball.vy;
+                }
+                checkWallCollision(ball);
+                normalizeSpeed(ball); 
+            });
+
+            for (let i = 0; i < allBalls.length; i++) {
+                for (let j = i + 1; j < allBalls.length; j++) {
+                    checkBallCollision(allBalls[i], allBalls[j]);
+                }
+            }
+
+            teams.RED.balls.forEach(rBall => {
+                teams.BLUE.balls.forEach(bBall => {
+                    processSteals(rBall, bBall);
+                    processSteals(bBall, rBall);
+                });
+            });
+
+            checkBallElimination(teams.RED);
+            checkBallElimination(teams.BLUE);
+
+            for (let i = explosionParticles.length - 1; i >= 0; i--) {
+                explosionParticles[i].update();
+                if (explosionParticles[i].life <= 0) {
+                    explosionParticles.splice(i, 1);
+                }
+            }
+
+            checkMilestones(); 
+
+            // 勝敗判定
+            let redLines = teams.RED.getTotalLines();
+            let blueLines = teams.BLUE.getTotalLines();
+            
+            if (redLines >= WIN_LINES) {
+                endGame('RED', 'REACHED 200 LINES');
+                return;
+            } else if (blueLines >= WIN_LINES) {
+                endGame('BLUE', 'REACHED 200 LINES');
+                return;
+            }
+
+            let redAlive = teams.RED.balls.some(b => !b.isSpirit);
+            let blueAlive = teams.BLUE.balls.some(b => !b.isSpirit);
+
+            if (!redAlive && !blueAlive) {
+                endGame('DRAW', 'BOTH ELIMINATED');
+            } else if (!redAlive) {
+                endGame('BLUE', 'ELIMINATED ENEMY');
+            } else if (!blueAlive) {
+                endGame('RED', 'ELIMINATED ENEMY');
+            }
+
+            sendSnapshot();
+        }
+
+        // --- 描画 ---
+        function draw() {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ['RED', 'BLUE'].forEach(teamName => {
+                let team = teams[teamName];
+                let color = teamName === 'RED' ? 'rgba(255, 0, 60, 0.4)' : 'rgba(0, 102, 255, 0.4)';
+                
+                if (team.isAnti()) {
+                    ctx.save();
+                    ctx.translate(ARENA.x, ARENA.y);
+                    let rotDir = teamName === 'RED' ? 1 : -1;
+                    ctx.rotate(gameFrames * 0.05 * rotDir);
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 4;
+                    for (let i = 0; i < 3; i++) {
+                        ctx.beginPath();
+                        let radius = ((gameFrames * 3) + i * 150) % ARENA.r;
+                        ctx.arc(0, 0, radius, 0, Math.PI * 1.5); 
+                        ctx.stroke();
+                    }
+                    ctx.restore();
+                }
+
+                if (team.isTornado()) {
+                    ctx.save();
+                    ctx.translate(ARENA.x, ARENA.y);
+                    let rotDir = teamName === 'RED' ? 1 : -1;
+                    ctx.rotate(gameFrames * 0.15 * rotDir); 
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 6;
+                    ctx.lineCap = 'round';
+                    for (let i = 0; i < 4; i++) {
+                        ctx.beginPath();
+                        let radiusOffset = (gameFrames * 2) % 50; 
+                        ctx.arc(0, 0, 50 + i * 70 + radiusOffset, i * Math.PI / 2, i * Math.PI / 2 + Math.PI * 1.5);
+                        ctx.stroke();
+                    }
+                    ctx.restore();
+                }
+            });
+
+            ctx.beginPath();
+            ctx.arc(ARENA.x, ARENA.y, ARENA.r, 0, Math.PI * 2);
+            ctx.strokeStyle = '#222';
+            ctx.lineWidth = 8;
+            ctx.stroke();
+            
+            if (teams.RED.isDouble() || teams.BLUE.isDouble()) {
+                ctx.strokeStyle = teams.RED.isDouble() ? 'rgba(255, 0, 60, 0.8)' : 'rgba(0, 102, 255, 0.8)';
+                if (teams.RED.isDouble() && teams.BLUE.isDouble()) ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+                ctx.shadowColor = ctx.strokeStyle;
+                ctx.shadowBlur = 20;
+            } else {
+                ctx.strokeStyle = '#fff';
+                ctx.shadowBlur = 0;
+            }
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+
+            let allBalls = [...teams.RED.balls, ...teams.BLUE.balls];
+
+            allBalls.forEach(ball => {
+                ctx.strokeStyle = ball.team.lineHex;
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ball.anchors.forEach(a => {
+                    ctx.moveTo(ball.x, ball.y);
+                    ctx.lineTo(a.x, a.y);
+                });
+                ctx.stroke();
+            });
+
+            let now = Date.now();
+            allBalls.forEach(ball => {
+                let team = ball.team;
+                let currentR = ball.getCurrentRadius(); 
+
+                if (ball.isSpirit) {
+                    ctx.globalAlpha = 0.6;
+                }
+
+                if (team.isInvincible()) {
+                    ctx.beginPath();
+                    ctx.arc(ball.x, ball.y, currentR + 8, 0, Math.PI * 2);
+                    ctx.strokeStyle = 'rgba(255, 215, 0, 0.8)';
+                    ctx.lineWidth = 4;
+                    ctx.stroke();
+                }
+
+                ctx.beginPath();
+                ctx.arc(ball.x, ball.y, currentR, 0, Math.PI * 2);
+                ctx.fillStyle = team.isFrozen() ? '#88ccff' : team.hexColor;
+                ctx.shadowColor = team.isFrozen() ? '#fff' : team.hexColor;
+                ctx.shadowBlur = ball.isSpirit ? 5 : 15;
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                
+                if (!ball.canDie) {
+                    ctx.beginPath();
+                    ctx.arc(ball.x, ball.y, currentR * 0.4, 0, Math.PI * 2);
+                    ctx.fillStyle = '#fff';
+                    ctx.fill();
+                }
+
+                if (!ball.isSpirit) {
+                    let age = now - ball.birthTime;
+                    if (age <= PROTECTION_DURATION) {
+                        ctx.beginPath();
+                        ctx.arc(ball.x, ball.y, currentR * 0.4, 0, Math.PI * 2);
+                        let alpha = 0.4 + 0.4 * Math.sin(age / 150);
+                        ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+                        ctx.fill();
+                    }
+                }
+
+                if (team.isFrozen()) {
+                    ctx.fillStyle = '#fff';
+                    ctx.font = `${currentR * 0.9}px Arial`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('❄', ball.x, ball.y);
+                }
+
+                const count = ball.anchors.length;
+                if (!team.isFrozen() && !ball.isSpirit) { 
+                    const badgeW = 32;
+                    const badgeH = 20;
+                    const badgeX = ball.x - badgeW / 2;
+                    const badgeY = ball.y - currentR - badgeH - 6;
+                    
+                    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+                    ctx.beginPath();
+                    ctx.roundRect ? ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 4) : ctx.rect(badgeX, badgeY, badgeW, badgeH);
+                    ctx.fill();
+
+                    ctx.fillStyle = '#000';
+                    ctx.font = 'bold 12px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(count, ball.x, badgeY + badgeH / 2 + 1);
+                }
+
+                ctx.globalAlpha = 1.0; 
+            });
+
+            explosionParticles.forEach(p => p.draw(ctx));
+        }
+
+        // --- UI更新 ---
+        function updateButtonsUI() {
+            if(gameState !== 'PLAYING') return;
+
+            const localTeam = getLocalTeam();
+            ui.bluePtTxt.innerText = localTeam.points;
+
+            let pts = localTeam.points;
+            let btns = ui.buttons.BLUE;
+            let cds = ui.cooldowns;
+            let now = Date.now();
+            
+            let isSpeedMax = localTeam.isMaxSpeed();
+            btns.SPEED.disabled = pts < COSTS.SPEED || isSpeedMax;
+            
+            const items = ['ADD', 'FREEZE', 'INV', 'GIANT', 'SMALL', 'SPIRIT', 'DOUBLE', 'TORNADO', 'ANTI'];
+            items.forEach(item => {
+                let cdTime = localTeam.cooldowns[item];
+                let btn = btns[item];
+                let overlay = cds[item];
+                
+                if (cdTime > now) {
+                    btn.disabled = true;
+                    overlay.classList.remove('hidden');
+                    overlay.innerText = Math.ceil((cdTime - now) / 1000) + 's';
+                } else {
+                    btn.disabled = pts < COSTS[item];
+                    overlay.classList.add('hidden');
+                }
+            });
+        }
+
+        function updateScoreUI() {
+            if (!teams.RED) return;
+            let rCount = teams.RED.getTotalLines();
+            let bCount = teams.BLUE.getTotalLines();
+            
+            ui.redScoreTxt.innerText = rCount;
+            ui.blueScoreTxt.innerText = bCount;
+
+            ui.redFill.style.width = `${Math.min(100, (rCount / WIN_LINES) * 100)}%`;
+            ui.blueFill.style.width = `${Math.min(100, (bCount / WIN_LINES) * 100)}%`;
+        }
+
+        // --- メインループ ---
+        function gameLoop() {
+            update();
+            draw();
+            updateScoreUI();
+            
+            if(gameFrames % 5 === 0) updateButtonsUI(); 
+
+            if (gameState === 'PLAYING') {
+                animationId = requestAnimationFrame(gameLoop);
+            }
+        }
+
+        function endGame(winnerColor, reason, fromNetwork = false) {
+            gameState = 'GAMEOVER';
+            ui.gameOverScreen.classList.remove('hidden');
+            ui.gameOverScreen.classList.add('flex');
+            session.winnerColor = winnerColor;
+            session.reason = reason;
+            
+            const localWon = session.mode === 'ONLINE' ? winnerColor === session.localSide : winnerColor === 'BLUE';
+            if (winnerColor === 'DRAW') {
+                playLoseSound();
+            } else if (localWon) {
+                playWinSound(); 
+            } else {
+                playLoseSound(); 
+            }
+
+            if (winnerColor === 'DRAW') {
+                ui.winnerText.innerText = 'DRAW';
+                ui.winnerText.className = `text-5xl md:text-7xl font-black mb-2 tracking-wider drop-shadow-[0_0_20px_rgba(255,255,255,0.8)] text-white`;
+            } else {
+                ui.winnerText.innerText = `${winnerColor} WINS`;
+                ui.winnerText.className = `text-5xl md:text-7xl font-black mb-2 tracking-wider ${
+                    winnerColor === 'RED' 
+                    ? 'drop-shadow-[0_0_20px_rgba(255,0,60,0.8)] text-[#ff003c]' 
+                    : 'drop-shadow-[0_0_20px_rgba(0,102,255,0.8)] text-[#0066ff]'
+                }`;
+            }
+            
+            ui.winReasonText.innerText = reason === 'REACHED 200 LINES' ? '200 LINES REACHED 🏁' : 'ENEMY ELIMINATED 💥';
+            
+            for(let key in ui.buttons.BLUE) ui.buttons.BLUE[key].disabled = true;
+
+            if (!fromNetwork && session.mode === 'ONLINE' && session.isHost) {
+                sendSnapshot();
+            }
+        }
+
+        window.onload = () => {
+            initFirebaseLobby();
+            initPeerNetworking();
+            showStartScreen();
+        };
+
+        window.addEventListener('beforeunload', () => {
+            cleanupLobby();
+            if (session.channel) {
+                session.channel.close();
+                session.channel = null;
+            }
+        });
+
+    </script>
+</body>
+</html>
