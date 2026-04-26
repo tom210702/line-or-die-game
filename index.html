@@ -69,13 +69,13 @@
 <body class="w-screen h-screen overflow-hidden flex flex-col font-sans text-white relative">
 
     <!-- スタート画面 -->
-    <div id="startScreen" class="absolute inset-0 bg-black/90 flex flex-col items-center justify-center z-[100] backdrop-blur-sm">
-        <h1 class="text-5xl md:text-7xl font-black mb-4 tracking-wider text-center flex flex-col gap-2">
+    <div id="startScreen" class="absolute inset-0 bg-black/90 flex flex-col items-center justify-start md:justify-center z-[100] backdrop-blur-sm overflow-y-auto px-4 py-6 md:py-10">
+        <h1 class="text-4xl md:text-7xl font-black mb-3 md:mb-4 tracking-wider text-center flex flex-col gap-1 md:gap-2 pt-2 md:pt-0">
             <span class="text-[#ff003c] drop-shadow-[0_0_15px_rgba(255,0,60,0.8)]">RED (AI)</span>
             <span class="text-white text-3xl">VS</span>
             <span class="text-[#0066ff] drop-shadow-[0_0_15px_rgba(0,102,255,0.8)]">BLUE (YOU)</span>
         </h1>
-        <div class="text-gray-400 mb-6 text-center px-4 max-w-md text-[10px] md:text-sm leading-relaxed">
+        <div class="text-gray-400 mb-4 md:mb-6 text-center px-2 md:px-4 max-w-md text-[10px] md:text-sm leading-relaxed">
             壁や<span class="text-yellow-400 font-bold">球体同士</span>の衝突、または<span class="text-yellow-400 font-bold">時間経過</span>で<span class="text-yellow-400 font-bold">ポイント</span>を獲得。<br>
             相手のラインに触れて奪い取れ！<br><br>
             <span class="text-teal-300 font-bold">竜巻</span>：3秒間、敵の球体を中央に引き寄せる<br>
@@ -91,20 +91,17 @@
             <button onclick="startGame('LOCAL')" class="flex-1 px-8 py-3 md:py-4 bg-white text-black font-black text-base md:text-lg rounded-full hover:bg-gray-200 hover:scale-105 transition-transform active:scale-95 shadow-[0_0_30px_rgba(255,255,255,0.5)]">
                 AIと対戦
             </button>
-            <button id="matchBtn" onclick="startGame('ONLINE')" disabled class="flex-1 px-8 py-3 md:py-4 bg-cyan-400 text-black font-black text-base md:text-lg rounded-full hover:bg-cyan-300 hover:scale-105 transition-transform active:scale-95 shadow-[0_0_24px_rgba(34,211,238,0.45)]">
+            <button id="matchBtn" onclick="startOnlineMatch()" disabled class="flex-1 px-8 py-3 md:py-4 bg-cyan-400 text-black font-black text-base md:text-lg rounded-full hover:bg-cyan-300 hover:scale-105 transition-transform active:scale-95 shadow-[0_0_24px_rgba(34,211,238,0.45)]">
                 オンライン対戦
             </button>
         </div>
-        <div class="mt-5 w-full max-w-md px-4">
-            <div class="rounded-2xl border border-cyan-400/30 bg-cyan-950/20 backdrop-blur-md p-4 md:p-5 shadow-[0_0_28px_rgba(34,211,238,0.12)]">
-                <div class="text-cyan-200 text-xs md:text-sm font-black tracking-[0.25em] mb-3">AUTO LOBBY MATCH</div>
-                <label class="block text-[10px] md:text-xs text-gray-300 font-bold mb-1">あなたのID</label>
-                <div class="flex gap-2 mb-3">
-                    <input id="myPeerId" type="text" readonly class="flex-1 rounded-xl bg-black/50 border border-cyan-500/30 px-3 py-2 text-xs md:text-sm text-cyan-100 font-mono outline-none select-all" value="発行中...">
-                    <button onclick="copyMyPeerId()" class="px-3 py-2 rounded-xl bg-cyan-400 text-black font-black text-xs md:text-sm hover:bg-cyan-300 transition-colors">COPY</button>
-                </div>
-                <div class="text-[10px] md:text-xs text-gray-300 mb-1">ID発行後、Firestoreロビーへ自動登録してランダムマッチングします</div>
-                <div id="matchStatus" class="mt-3 text-cyan-200 text-center text-xs md:text-sm font-bold tracking-wider min-h-[1.25rem]"></div>
+        <div class="mt-3 md:mt-4 w-full max-w-md px-4">
+            <label class="block text-[10px] md:text-xs text-gray-300 font-bold mb-1">あなたの名前</label>
+            <input id="playerNameInput" type="text" maxlength="16" placeholder="プレイヤー名を入力" class="w-full rounded-2xl bg-black/50 border border-gray-600 px-4 py-3 text-sm md:text-base text-white font-bold outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/30" />
+        </div>
+        <div class="mt-3 w-full max-w-md px-4">
+            <div class="rounded-2xl border border-cyan-400/30 bg-cyan-950/20 backdrop-blur-md px-4 py-3 md:px-5 md:py-4 shadow-[0_0_28px_rgba(34,211,238,0.12)]">
+                <div id="matchStatus" class="text-cyan-200 text-center text-xs md:text-sm font-bold tracking-wider min-h-[1.25rem] leading-snug">AIと対戦、オンライン対戦、名前変更ができます</div>
             </div>
         </div>
     </div>
@@ -448,6 +445,7 @@
             redTeamLabel: document.getElementById('redTeamLabel'),
             blueTeamLabel: document.getElementById('blueTeamLabel'),
             localItemsLabel: document.getElementById('localItemsLabel'),
+            playerNameInput: document.getElementById('playerNameInput'),
             myPeerId: document.getElementById('myPeerId'),
             matchBtn: document.getElementById('matchBtn'),
             bluePtTxt: document.getElementById('bluePtTxt'),
@@ -516,6 +514,7 @@
         };
 
         const APP_ID = window.__appId || window.appId || 'line-or-die';
+        const LOBBY_STALE_MS = 2 * 60 * 1000;
 
         const session = {
             mode: 'LOCAL',
@@ -527,6 +526,8 @@
             peer: null,
             channel: null,
             peerIdRemote: null,
+            playerName: 'YOU',
+            opponentName: 'OPPONENT',
             pendingLocalActions: [],
             lastSnapshotSentAt: 0,
             peerReady: false,
@@ -536,13 +537,54 @@
             db: null,
             lobbyRef: null,
             lobbyUnsub: null,
-            connectAttemptPeerId: null
+            connectAttemptPeerId: null,
+            onlineRequested: false
         };
 
         let peer = null;
         let myId = session.peerId;
         let conn = null;
         let isHost = false;
+
+        function normalizePlayerName(value, fallback) {
+            const name = (value || '').trim();
+            return name ? name.slice(0, 16) : fallback;
+        }
+
+        function loadPlayerName() {
+            session.playerName = normalizePlayerName(localStorage.getItem('lineOrDiePlayerName'), 'YOU');
+            if (ui.playerNameInput) {
+                ui.playerNameInput.value = session.playerName;
+            }
+        }
+
+        function savePlayerName(value) {
+            session.playerName = normalizePlayerName(value, 'YOU');
+            localStorage.setItem('lineOrDiePlayerName', session.playerName);
+            if (ui.playerNameInput && ui.playerNameInput.value !== session.playerName) {
+                ui.playerNameInput.value = session.playerName;
+            }
+        }
+
+        function updateTeamNameLabels() {
+            if (!ui.redTeamLabel || !ui.blueTeamLabel) return;
+
+            if (session.mode === 'ONLINE') {
+                const localName = normalizePlayerName(session.playerName, 'YOU');
+                const remoteName = normalizePlayerName(session.opponentName, 'OPPONENT');
+                if (session.localSide === 'RED') {
+                    ui.redTeamLabel.innerText = `RED: ${localName}`;
+                    ui.blueTeamLabel.innerText = `BLUE: ${remoteName}`;
+                } else {
+                    ui.redTeamLabel.innerText = `RED: ${remoteName}`;
+                    ui.blueTeamLabel.innerText = `BLUE: ${localName}`;
+                }
+                return;
+            }
+
+            ui.redTeamLabel.innerText = 'RED (AI)';
+            ui.blueTeamLabel.innerText = 'BLUE (YOU)';
+        }
 
         function getLocalTeam() {
             return teams[session.localSide] || teams.BLUE;
@@ -620,9 +662,16 @@
                     .onSnapshot(snapshot => {
                         if (session.channel || session.connectAttemptPeerId || gameState === 'PLAYING') return;
                         const peers = [];
+                        const now = Date.now();
                         snapshot.forEach(doc => {
                             const data = doc.data();
                             if (data && data.peerId && data.peerId !== session.peerId) {
+                                const timestamp = data.updatedAt || data.createdAt;
+                                const ageMs = timestamp && typeof timestamp.toMillis === 'function' ? now - timestamp.toMillis() : null;
+                                if (ageMs !== null && ageMs > LOBBY_STALE_MS) {
+                                    doc.ref.delete().catch(() => {});
+                                    return;
+                                }
                                 peers.push(data.peerId);
                             }
                         });
@@ -656,7 +705,22 @@
         }
 
         function startMatching() {
-            tryAutoLobby();
+            if (session.onlineRequested) {
+                tryAutoLobby();
+            }
+        }
+
+        function startOnlineMatch() {
+            savePlayerName(ui.playerNameInput ? ui.playerNameInput.value : session.playerName);
+            session.onlineRequested = true;
+            session.mode = 'ONLINE';
+            session.localSide = 'BLUE';
+            session.remoteSide = 'RED';
+            session.opponentName = 'OPPONENT';
+            updateControlLabel();
+            initFirebaseLobby();
+            initPeer();
+            startMatching();
         }
 
         function setupConnection() {
@@ -686,7 +750,6 @@
 
         function initFirebaseLobby() {
             if (session.firebaseReady) {
-                tryAutoLobby();
                 return;
             }
 
@@ -713,7 +776,6 @@
                 if (!user) return;
                 session.authReady = true;
                 session.userId = user.uid;
-                tryAutoLobby();
             });
 
             initAuth();
@@ -721,6 +783,13 @@
 
         // --- 2. PeerJSの初期化 ---
         function initPeer() {
+            if (session.peer) {
+                updatePeerIdUI();
+                if (session.onlineRequested) {
+                    startMatching();
+                }
+                return;
+            }
             console.log("★ボタンが押されました！PeerJSに接続します...");
             // debug: 2 を入れると、裏側の通信状態を詳しくコンソールに出してくれます
             peer = new Peer({ debug: 2 }); 
@@ -735,14 +804,16 @@
                 console.log("★My Peer ID 発行成功:", myId);
                 updatePeerIdUI();
                 setConnectionStatus(`ID発行完了: ${session.peerId}`);
-                startMatching();
+                if (session.onlineRequested) {
+                    startMatching();
+                }
             });
 
             peer.on('connection', (connection) => {
                 conn = connection;
-                isHost = false;
+                isHost = true;
                 setupConnection();
-                if(statusEl) statusEl.innerText = "マッチング成立！（ゲスト）";
+                if(statusEl) statusEl.innerText = "マッチング成立！（ホスト）";
             });
 
             // 新しく追加した「エラー報告」の罠
@@ -779,6 +850,21 @@
             session.localSide = isHostSide ? 'RED' : 'BLUE';
             session.remoteSide = isHostSide ? 'BLUE' : 'RED';
 
+            let finalized = false;
+            const finalizeConnection = () => {
+                if (finalized) return;
+                finalized = true;
+                const roleText = isHostSide ? 'ホストとして接続しました' : 'ゲストとして接続しました';
+                setConnectionStatus(roleText);
+                cleanupLobby().finally(() => {
+                    startGame('ONLINE', { matchId: session.matchId, isHost: session.isHost, localSide: session.localSide });
+                    sendPeerMessage({ type: 'hello', matchId: session.matchId, peerId: session.peerId, role: isHostSide ? 'HOST' : 'GUEST', playerName: session.playerName, localSide: session.localSide });
+                    if (isHostSide) {
+                        sendSnapshot();
+                    }
+                });
+            };
+
             conn.on('data', handlePeerMessage);
             conn.on('close', () => {
                 if (gameState === 'PLAYING' || session.mode === 'ONLINE') {
@@ -790,17 +876,10 @@
                 setConnectionStatus(`接続エラー: ${err.type || err.message || 'unknown'}`);
             });
 
-            conn.on('open', () => {
-                const roleText = isHostSide ? 'ホストとして接続しました' : 'ゲストとして接続しました';
-                setConnectionStatus(roleText);
-                cleanupLobby().finally(() => {
-                    startGame('ONLINE', { matchId: session.matchId, isHost: session.isHost, localSide: session.localSide });
-                    sendPeerMessage({ type: 'hello', matchId: session.matchId, peerId: session.peerId, role: isHostSide ? 'HOST' : 'GUEST' });
-                    if (isHostSide) {
-                        sendSnapshot();
-                    }
-                });
-            });
+            conn.on('open', finalizeConnection);
+            if (conn.open) {
+                finalizeConnection();
+            }
         }
 
         function handlePeerMessage(message) {
@@ -808,6 +887,10 @@
             if (message.matchId && session.matchId && message.matchId !== session.matchId) return;
 
             if (message.type === 'hello') {
+                if (message.playerName) {
+                    session.opponentName = normalizePlayerName(message.playerName, 'OPPONENT');
+                    updateControlLabel();
+                }
                 if (session.isHost && session.channel && session.channel.open) {
                     sendSnapshot();
                 }
@@ -1172,6 +1255,8 @@
             session.localSide = 'BLUE';
             session.remoteSide = 'RED';
             session.isHost = false;
+            session.onlineRequested = false;
+            session.opponentName = 'OPPONENT';
             ui.gameOverScreen.classList.add('hidden');
             ui.gameOverScreen.classList.remove('flex');
             ui.startScreen.classList.remove('hidden');
@@ -1179,7 +1264,6 @@
             setMatchStatus('');
             updateControlLabel();
             gameState = 'START';
-            tryAutoLobby();
         }
 
         function updateControlLabel() {
@@ -1195,20 +1279,14 @@
                     ui.localItemsLabel.className = 'text-[#0066ff] font-black tracking-widest text-sm md:text-lg drop-shadow-[0_0_8px_rgba(0,102,255,0.8)]';
                 }
             }
-            if (ui.redTeamLabel && ui.blueTeamLabel) {
-                if (session.mode === 'ONLINE') {
-                    ui.redTeamLabel.innerText = side === 'RED' ? 'RED (YOU)' : 'RED (OPPONENT)';
-                    ui.blueTeamLabel.innerText = side === 'BLUE' ? 'BLUE (YOU)' : 'BLUE (OPPONENT)';
-                } else {
-                    ui.redTeamLabel.innerText = 'RED (AI)';
-                    ui.blueTeamLabel.innerText = 'BLUE (YOU)';
-                }
-            }
+            updateTeamNameLabels();
             const title = ui.startScreen.querySelector('h1');
             if (title) {
                 if (session.mode === 'ONLINE') {
-                    title.querySelectorAll('span')[0].innerText = session.localSide === 'RED' ? 'RED (YOU)' : 'RED (AI)';
-                    title.querySelectorAll('span')[2].innerText = session.localSide === 'BLUE' ? 'BLUE (YOU)' : 'BLUE (AI)';
+                    const localName = normalizePlayerName(session.playerName, 'YOU');
+                    const remoteName = normalizePlayerName(session.opponentName, 'OPPONENT');
+                    title.querySelectorAll('span')[0].innerText = session.localSide === 'RED' ? `RED: ${localName}` : `RED: ${remoteName}`;
+                    title.querySelectorAll('span')[2].innerText = session.localSide === 'BLUE' ? `BLUE: ${localName}` : `BLUE: ${remoteName}`;
                 } else {
                     title.querySelectorAll('span')[0].innerText = 'RED (AI)';
                     title.querySelectorAll('span')[2].innerText = 'BLUE (YOU)';
@@ -1222,20 +1300,12 @@
             }
 
             if (mode === 'ONLINE' && !matchInfo) {
-                if (!session.channel || !session.channel.open) {
-                    session.mode = 'ONLINE';
-                    session.localSide = 'BLUE';
-                    session.remoteSide = 'RED';
-                    updateControlLabel();
-                    setConnectionStatus('ロビーで対戦相手を検索中...');
-                    tryAutoLobby();
-                    return;
-                }
-                matchInfo = {
-                    matchId: session.matchId,
-                    isHost: session.isHost,
-                    localSide: session.localSide
-                };
+                session.mode = 'ONLINE';
+                session.localSide = 'BLUE';
+                session.remoteSide = 'RED';
+                updateControlLabel();
+                setConnectionStatus('オンライン対戦を開始してください');
+                return;
             }
 
             if (mode === 'LOCAL') {
@@ -1249,6 +1319,7 @@
             session.remoteSide = session.localSide === 'BLUE' ? 'RED' : 'BLUE';
             session.winnerColor = null;
             session.reason = null;
+            updateControlLabel();
 
             ui.startScreen.classList.add('hidden');
             ui.startScreen.classList.remove('flex');
@@ -2129,8 +2200,14 @@
         }
 
         window.onload = () => {
+            loadPlayerName();
+            if (ui.playerNameInput) {
+                ui.playerNameInput.addEventListener('input', () => {
+                    savePlayerName(ui.playerNameInput.value);
+                    updateControlLabel();
+                });
+            }
             initFirebaseLobby();
-            initPeer();
             showStartScreen();
         };
 
