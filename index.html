@@ -599,6 +599,12 @@
             }
         }
 
+        function resumeAudioIfNeeded() {
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume().catch(() => {});
+            }
+        }
+
         function updateTeamNameLabels() {
             if (!ui.redTeamLabel || !ui.blueTeamLabel) return;
 
@@ -773,6 +779,7 @@
         }
 
         function createRoom() {
+            resumeAudioIfNeeded();
             savePlayerName(ui.playerNameInput ? ui.playerNameInput.value : session.playerName);
             session.onlineRequested = true;
             session.roomAction = 'CREATE';
@@ -785,6 +792,7 @@
         }
 
         function searchRooms() {
+            resumeAudioIfNeeded();
             savePlayerName(ui.playerNameInput ? ui.playerNameInput.value : session.playerName);
             session.onlineRequested = true;
             session.roomAction = 'SEARCH';
@@ -878,6 +886,7 @@
         }
 
         async function joinRoomByCode(roomCodeInput) {
+            resumeAudioIfNeeded();
             const roomCode = normalizeRoomCode(roomCodeInput);
             if (!roomCode) {
                 setConnectionStatus('部屋コードを入力してください');
@@ -1265,7 +1274,7 @@
         function sendSnapshot() {
             if (session.mode !== 'ONLINE' || !session.channel || !session.isHost || gameState !== 'PLAYING') return;
             const now = Date.now();
-            if (now - session.lastSnapshotSentAt < 80) return;
+            if (now - session.lastSnapshotSentAt < 40) return;
             session.lastSnapshotSentAt = now;
             sendPeerMessage({
                 type: 'snapshot',
@@ -1470,6 +1479,7 @@
         }
 
         function startGame(mode = 'LOCAL', matchInfo = null) {
+            resumeAudioIfNeeded();
             if (audioCtx.state === 'suspended') {
                 audioCtx.resume();
             }
@@ -2019,7 +2029,6 @@
 
         function update() {
             if (gameState !== 'PLAYING') return;
-            if (session.mode === 'ONLINE' && !session.isHost) return;
             gameFrames++;
 
             const elapsedSeconds = Math.floor((Date.now() - gameStartAtMs) / 1000);
