@@ -521,6 +521,8 @@
 
         let gameState = 'START';
         let animationId;
+        let gameLoopLastAt = 0;
+        let gameLoopAccumulator = 0;
         let gameFrames = 0;
         let explosionParticles = [];
         let nextBallId = 1;
@@ -1524,6 +1526,8 @@
             speedRampMultiplier = 1.0;
             gameStartAtMs = Date.now();
             aiCooldown = Date.now() + 2000;
+            gameLoopLastAt = performance.now();
+            gameLoopAccumulator = 0;
             gameState = 'PLAYING';
             updateButtonsUI();
             
@@ -2324,7 +2328,22 @@
 
         // --- メインループ ---
         function gameLoop() {
-            update();
+            const now = performance.now();
+            if (!gameLoopLastAt) {
+                gameLoopLastAt = now;
+            }
+            const delta = Math.min(250, Math.max(0, now - gameLoopLastAt));
+            gameLoopLastAt = now;
+            gameLoopAccumulator += delta;
+
+            const fixedStepMs = 1000 / 60;
+            let stepCount = 0;
+            while (gameLoopAccumulator >= fixedStepMs && stepCount < 5) {
+                update();
+                gameLoopAccumulator -= fixedStepMs;
+                stepCount += 1;
+                if (gameState !== 'PLAYING') break;
+            }
             draw();
             updateScoreUI();
             
