@@ -888,12 +888,15 @@
         async function joinRoomByCode(roomCodeInput) {
             resumeAudioIfNeeded();
             const roomCode = normalizeRoomCode(roomCodeInput);
+            console.log('[Join] Attempting to join room:', roomCode);
+            
             if (!roomCode) {
                 setConnectionStatus('部屋コードを入力してください');
                 return;
             }
 
             if (!session.db || !session.peerReady || !session.authReady) {
+                console.log('[Join] Not ready yet, deferring join');
                 session.pendingRoomCode = roomCode;
                 session.roomAction = 'JOIN';
                 setConnectionStatus('接続準備中...');
@@ -902,16 +905,19 @@
 
             const roomSnap = await roomCollection().doc(roomCode).get();
             if (!roomSnap.exists) {
+                console.log('[Join] Room not found:', roomCode);
                 setConnectionStatus('部屋が見つかりません');
                 return;
             }
 
             const room = roomSnap.data();
             if (!room || room.status !== 'waiting' || !room.hostPeerId) {
+                console.log('[Join] Room not joinable:', room);
                 setConnectionStatus('その部屋には参加できません');
                 return;
             }
 
+            console.log('[Join] Found room, connecting to host:', room.hostPeerId);
             await cleanupRoomState(false);
 
             session.onlineRequested = true;
@@ -930,11 +936,15 @@
             session.channel = remoteConn;
             session.peerIdRemote = room.hostPeerId;
 
+            console.log('[Join] Connection created, waiting for open event');
+
             remoteConn.on('open', () => {
+                console.log('[Join] Connection opened successfully');
                 acceptPeerConnection(remoteConn, false);
             });
 
             remoteConn.on('error', err => {
+                console.log('[Join] Connection error:', err);
                 setConnectionStatus(`接続エラー: ${err.type || err.message || 'unknown'}`);
                 session.channel = null;
             });
@@ -1012,6 +1022,7 @@
         // --- 2. PeerJSの初期化 ---
         function initPeer() {
             if (session.peer) {
+                console.log('[PeerJS] Already initialized, peerId:', session.peerId);
                 updatePeerIdUI();
                 maybeRunRoomAction();
                 return;
@@ -1034,6 +1045,7 @@
             });
 
             peer.on('connection', (connection) => {
+                console.log('[PeerJS] Incoming connection from:', connection.peer);
                 conn = connection;
                 isHost = true;
                 setupConnection();
@@ -1071,16 +1083,20 @@
             session.remoteSide = isHostSide ? 'BLUE' : 'RED';
             session.matchId = session.roomCode || getMatchIdForPeer(conn.peer);
 
+            console.log('[Connection] Accepted connection as', isHostSide ? 'HOST' : 'GUEST', 'remoteId:', conn.peer);
+
             let finalized = false;
             const finalizeConnection = () => {
                 if (finalized) return;
                 finalized = true;
                 const roleText = isHostSide ? 'ホストとして接続しました' : 'ゲストとして接続しました';
+                console.log('[Connection] Finalized -', roleText);
                 setConnectionStatus(roleText);
                 cleanupRoomState(isHostSide).finally(() => {
                     startGame('ONLINE', { matchId: session.matchId, isHost: session.isHost, localSide: session.localSide });
                     sendPeerMessage({ type: 'hello', matchId: session.matchId, peerId: session.peerId, role: isHostSide ? 'HOST' : 'GUEST', playerName: session.playerName, localSide: session.localSide });
                     if (isHostSide) {
+                        console.log('[Host] Sending initial snapshot');
                         sendSnapshot();
                     }
                 });
@@ -1088,12 +1104,14 @@
 
             conn.on('data', handlePeerMessage);
             conn.on('close', () => {
+                console.log('[Connection] Closed');
                 if (gameState === 'PLAYING' || session.mode === 'ONLINE') {
                     setConnectionStatus('接続が切断されました');
                     showStartScreen();
                 }
             });
             conn.on('error', err => {
+                console.log('[Connection] Error:', err);
                 setConnectionStatus(`接続エラー: ${err.type || err.message || 'unknown'}`);
             });
 
@@ -1107,32 +1125,66 @@
             if (!message) return;
             if (message.matchId && session.matchId && message.matchId !== session.matchId) return;
 
+            console.log('[Peer] Received message:', message.type, message);
+
             if (message.type === 'hello') {
                 if (message.playerName) {
                     session.opponentName = normalizePlayerName(message.playerName, 'OPPONENT');
                     updateControlLabel();
                 }
                 if (session.isHost && session.channel && session.channel.open) {
+                    console.log('[Host] Sending initial snapshot to guest');
                     sendSnapshot();
                 }
                 return;
             }
 
             if (message.type === 'snapshot' && !session.isHost) {
+                console.log('[Guest] Applying snapshot from host');
                 applySnapshot(message.snapshot);
                 return;
             }
 
-            if (message.type === 'action' && session.isHost) {
+            // HOST AUTHORITY: ゲストからのアイテムリクエストをホストが処理
+            if (message.type === 'itemRequest' && session.isHost) {
+                console.log('[Host] Received itemRequest from guest:', message.itemType);
                 if (message.side === session.remoteSide) {
-                    buyItem(message.side, message.itemType, true);
+                    // ホスト側で判定・適用・結果をゲストに送信
+                    const result = processItemRequestAsHost(message.side, message.itemType);
+                    console.log('[Host] Item result:', result);
+                    // 結果をゲストに送信
+                    sendPeerMessage({
+                        type: 'itemResult',
+                        matchId: session.matchId,
+                        side: message.side,
+                        itemType: message.itemType,
+                        success: result.success,
+                        reason: result.reason || '',
+                        eventData: result.eventData || null
+                    });
+                    // スナップショット送信
+                    sendSnapshot();
+                }
+                return;
+            }
+
+            // GUEST: ホストからのアイテム結果を受信して適用
+            if (message.type === 'itemResult' && !session.isHost) {
+                console.log('[Guest] Received itemResult:', message.itemType, 'success=', message.success);
+                if (message.success) {
+                    // ゲスト側のローカル表示更新（実際のゲーム状態はスナップショットで同期される）
+                    applyItemResultAsGuest(message.side, message.itemType, message.eventData);
                 }
                 return;
             }
         }
 
         function sendPeerMessage(payload) {
-            if (!session.channel || !session.channel.open) return;
+            if (!session.channel || !session.channel.open) {
+                console.log('[Peer] Channel not open, message not sent:', payload.type);
+                return;
+            }
+            console.log('[Peer] Sending message:', payload.type, payload);
             session.channel.send(payload);
         }
 
@@ -1251,6 +1303,7 @@
         }
 
         function applySnapshot(snapshot) {
+            console.log('[Guest] Applying snapshot - RED points:', snapshot.teams.RED.points, 'BLUE points:', snapshot.teams.BLUE.points);
             gameFrames = snapshot.gameFrames;
             nextBallId = snapshot.nextBallId || nextBallId;
             speedRampMultiplier = snapshot.speedRampMultiplier || 1.0;
@@ -1276,6 +1329,7 @@
             const now = Date.now();
             if (now - session.lastSnapshotSentAt < 40) return;
             session.lastSnapshotSentAt = now;
+            console.log('[Host] Sending snapshot to guest - RED points:', teams.RED.points, 'BLUE points:', teams.BLUE.points);
             sendPeerMessage({
                 type: 'snapshot',
                 matchId: session.matchId,
@@ -1570,17 +1624,29 @@
 
         window.buyLocalItem = function(itemType) {
             if (gameState !== 'PLAYING') return;
+            
+            // LOCAL モード：ホストなしでいきなり適用（AIに対して）
             if (session.mode !== 'ONLINE') {
                 buyItem('BLUE', itemType);
                 return;
             }
 
+            // ONLINE ホスト側：自分で判定・適用・スナップショット送信
             if (session.isHost) {
-                buyItem(session.localSide, itemType);
-                sendSnapshot();
-            } else if (session.channel && session.matchId) {
+                console.log('[Host] Local player requesting item:', itemType);
+                const result = processItemRequestAsHost(session.localSide, itemType);
+                console.log('[Host] Item processed, success=', result.success);
+                if (result.success) {
+                    sendSnapshot();
+                }
+                return;
+            }
+
+            // ONLINE ゲスト側：リクエスト送信のみ（判定をホストに委譲）
+            if (session.channel && session.matchId) {
+                console.log('[Guest] Sending itemRequest to host:', itemType);
                 sendPeerMessage({
-                    type: 'action',
+                    type: 'itemRequest',
                     matchId: session.matchId,
                     peerId: session.peerId,
                     side: session.localSide,
@@ -1589,7 +1655,189 @@
             }
         };
 
-        // --- アイテムシステム ---
+        // === HOST AUTHORITY: ホスト側でのアイテム判定・適用 ===
+        function processItemRequestAsHost(teamName, itemType) {
+            console.log(`[Host] processItemRequestAsHost: team=${teamName}, item=${itemType}`);
+            
+            if (gameState !== 'PLAYING') {
+                console.log('[Host] Game not playing');
+                return { success: false, reason: 'GAME_NOT_PLAYING', eventData: null };
+            }
+            
+            let team = teams[teamName];
+            let enemy = teamName === 'RED' ? teams.BLUE : teams.RED;
+            let cost = COSTS[itemType];
+            let now = Date.now();
+
+            // クールタイム確認
+            if (itemType !== 'SPEED' && team.cooldowns[itemType] > now) {
+                console.log(`[Host] Cooldown active for ${itemType}`);
+                return { success: false, reason: 'COOLDOWN', eventData: null };
+            }
+
+            // ポイント不足
+            if (team.points < cost) {
+                console.log(`[Host] Not enough points: ${team.points} < ${cost}`);
+                return { success: false, reason: 'NOT_ENOUGH_POINTS', eventData: null };
+            }
+
+            // ポイント消費
+            team.points -= cost;
+            console.log(`[Host] Points deducted. New points: ${team.points}`);
+
+            // クールタイム設定
+            if (itemType !== 'SPEED') {
+                team.cooldowns[itemType] = now + COOLDOWN_DURATION;
+                console.log(`[Host] Cooldown set for ${itemType}: ${team.cooldowns[itemType]}`);
+            }
+
+            playItemSound(itemType);
+            let borderColor = teamName === 'RED' ? 'border-red-500 text-red-200' : 'border-blue-500 text-blue-200';
+            addLog(`[${teamName}] ${ITEM_NAMES[itemType]}`, borderColor);
+
+            let eventData = {
+                itemType: itemType,
+                teamName: teamName
+            };
+
+            // アイテム効果の適用（ホストのみ）
+            switch(itemType) {
+                case 'SPEED':
+                    if (!team.isMaxSpeed()) {
+                        team.speedBonus += (INITIAL_SPEED * 0.05);
+                        if (INITIAL_SPEED + team.speedBonus > MAX_SPEED) {
+                            team.speedBonus = MAX_SPEED - INITIAL_SPEED;
+                        }
+                        team.balls.forEach(b => {
+                            refreshBallSpeed(b);
+                            normalizeSpeed(b);
+                        });
+                        showAnnounce(`${teamName} SPEED UP!`, team.colorStr);
+                        
+                        if (teamName === 'BLUE' && team.isMaxSpeed()) {
+                            ui.txtBlueSpeed.innerHTML = '速度MAX';
+                        }
+                        eventData.maxSpeed = team.isMaxSpeed();
+                    }
+                    break;
+
+                case 'ADD':
+                    // ホスト側で球体を追加（乱数はホスト側のみで生成）
+                    const newBall = addBallToTeam(team, ARENA.x + (Math.random()*40-20), ARENA.y + (Math.random()*40-20), false);
+                    showAnnounce(`${teamName} EXTRA BALL!`, team.colorStr);
+                    eventData.ballId = newBall.id;
+                    break;
+
+                case 'FREEZE':
+                    if (enemy.isInvincible()) {
+                        console.log(`[Host] Enemy is invincible, FREEZE blocked`);
+                        showAnnounce(`BLOCKED!`, 'text-yellow-400');
+                        addLog(`[${enemy.name}] BLOCKED FREEZE!`, borderColor);
+                        return { success: false, reason: 'BLOCKED_BY_INVINCIBLE', eventData };
+                    }
+                    enemy.freezeUntil = Date.now() + 3000;
+                    showAnnounce(`${enemy.name} FROZEN!`, 'text-blue-200');
+                    eventData.targetTeam = enemy.name;
+                    break;
+
+                case 'INV':
+                    team.invincibleUntil = Date.now() + 3000;
+                    showAnnounce(`${teamName} INVINCIBLE!`, 'text-yellow-400');
+                    eventData.duration = 3000;
+                    break;
+
+                case 'GIANT':
+                    team.smallUntil = 0;
+                    team.giantUntil = Date.now() + 5000;
+                    showAnnounce(`${teamName} GIANT!`, 'text-orange-400');
+                    eventData.duration = 5000;
+                    break;
+
+                case 'SMALL':
+                    team.giantUntil = 0;
+                    team.smallUntil = Date.now() + 5000;
+                    showAnnounce(`${teamName} SMALL & FAST!`, 'text-green-400');
+                    eventData.duration = 5000;
+                    break;
+
+                case 'SPIRIT':
+                    let parents = team.balls.filter(b => !b.isSpirit);
+                    let spiritIds = [];
+                    parents.forEach(p => {
+                        const spiritBall = addBallToTeam(team, p.x, p.y, false, true, p);
+                        spiritIds.push(spiritBall.id);
+                    });
+                    showAnnounce(`${teamName} SPIRIT!`, 'text-purple-400');
+                    eventData.spiritIds = spiritIds;
+                    break;
+
+                case 'DOUBLE':
+                    team.doubleUntil = Date.now() + 3000;
+                    showAnnounce(`${teamName} 2x LINES!`, 'text-cyan-400');
+                    eventData.duration = 3000;
+                    break;
+
+                case 'TORNADO':
+                    team.tornadoUntil = Date.now() + 3000;
+                    showAnnounce(`${teamName} TORNADO!`, 'text-teal-300');
+                    eventData.duration = 3000;
+                    break;
+
+                case 'ANTI':
+                    team.antiUntil = Date.now() + 3000;
+                    showAnnounce(`${teamName} HIGH PRESSURE!`, 'text-sky-300');
+                    eventData.duration = 3000;
+                    break;
+            }
+
+            updateButtonsUI();
+            console.log(`[Host] Item effect applied successfully:`, eventData);
+            return { success: true, eventData };
+        }
+
+        // === GUEST: ホストからのイベントデータをゲスト側で適用（ローカル表示のみ） ===
+        function applyItemResultAsGuest(teamName, itemType, eventData) {
+            console.log(`[Guest] applyItemResultAsGuest: team=${teamName}, item=${itemType}`, eventData);
+            
+            // ゲスト側では、ゲーム状態の更新はスナップショット同期に任せる
+            // ここでは主に、ログやアナウンス表示など UI のみ更新
+            
+            let borderColor = teamName === 'RED' ? 'border-red-500 text-red-200' : 'border-blue-500 text-blue-200';
+            addLog(`[${teamName}] ${ITEM_NAMES[itemType]}`, borderColor);
+
+            // 簡単なアナウンス表示（実際の状態はスナップショットで同期）
+            switch(itemType) {
+                case 'ADD':
+                    showAnnounce(`${teamName} EXTRA BALL!`, teams[teamName].colorStr);
+                    break;
+                case 'FREEZE':
+                    showAnnounce(`FROZEN!`, 'text-blue-200');
+                    break;
+                case 'INV':
+                    showAnnounce(`${teamName} INVINCIBLE!`, 'text-yellow-400');
+                    break;
+                case 'GIANT':
+                    showAnnounce(`${teamName} GIANT!`, 'text-orange-400');
+                    break;
+                case 'SMALL':
+                    showAnnounce(`${teamName} SMALL & FAST!`, 'text-green-400');
+                    break;
+                case 'SPIRIT':
+                    showAnnounce(`${teamName} SPIRIT!`, 'text-purple-400');
+                    break;
+                case 'DOUBLE':
+                    showAnnounce(`${teamName} 2x LINES!`, 'text-cyan-400');
+                    break;
+                case 'TORNADO':
+                    showAnnounce(`${teamName} TORNADO!`, 'text-teal-300');
+                    break;
+                case 'ANTI':
+                    showAnnounce(`${teamName} HIGH PRESSURE!`, 'text-sky-300');
+                    break;
+            }
+        }
+
+        // --- アイテムシステム（LOCAL モード用）---
         window.buyItem = function(teamName, itemType, fromNetwork = false) {
             if (gameState !== 'PLAYING') return;
             let team = teams[teamName];
